@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "./lib/supabase";
+import logoImg from "./assets/jdlo.png";
 
 const GlobalStyle = () => (
   <style>{`
@@ -40,38 +41,56 @@ const GlobalStyle = () => (
     .mono { font-family: 'JetBrains Mono', monospace; }
 
     @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 0 10px rgba(0,245,212,0.3); }
-      50%       { box-shadow: 0 0 30px rgba(0,245,212,0.6); }
+      0%, 100% { box-shadow: 0 0 10px rgba(0,245,212,0.25); }
+      50% { box-shadow: 0 0 26px rgba(0,245,212,0.45); }
     }
+
     @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50%       { transform: translateY(-6px); }
+      0%, 100% { transform: translateY(0px) scale(1); }
+      50% { transform: translateY(-6px) scale(1.01); }
     }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(12px); }
       to   { opacity: 1; transform: translateY(0); }
     }
+
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-    .fade-in { animation: fadeIn 0.4s ease forwards; }
+    .fade-in { animation: fadeIn 0.35s ease forwards; }
 
     .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer;
-      font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600;
-      transition: all 0.2s; letter-spacing: 0.03em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+      letter-spacing: 0.03em;
     }
+
     .btn-primary { background: var(--accent); color: #000; }
-    .btn-primary:hover { filter: brightness(1.15); transform: translateY(-1px); box-shadow: var(--glow); }
-    .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
-    .btn-ghost:hover { background: rgba(0,245,212,0.1); }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: var(--glow); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .btn-ghost:hover { background: rgba(0,245,212,0.08); }
+
     .btn-danger { background: var(--danger); color: #fff; }
-    .btn-amber { background: var(--accent3); color: #000; }
     .btn-purple { background: var(--accent2); color: #fff; }
-    .btn-purple:hover { filter: brightness(1.15); box-shadow: var(--glow2); }
+    .btn-purple:hover { filter: brightness(1.1); box-shadow: var(--glow2); }
     .btn-sm { padding: 8px 16px; font-size: 12px; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
 
     .card {
       background: var(--card);
@@ -81,9 +100,15 @@ const GlobalStyle = () => (
     }
 
     .tag {
-      display: inline-block; padding: 2px 10px; border-radius: 20px;
-      font-size: 11px; font-weight: 600; letter-spacing: 0.05em; font-family: 'JetBrains Mono';
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      font-family: 'JetBrains Mono', monospace;
     }
+
     .tag-green  { background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
     .tag-amber  { background: rgba(245,158,11,0.15); color: var(--accent3); border: 1px solid rgba(245,158,11,0.3); }
     .tag-purple { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.3); }
@@ -91,69 +116,221 @@ const GlobalStyle = () => (
     .tag-cyan   { background: rgba(0,245,212,0.1); color: var(--accent); border: 1px solid rgba(0,245,212,0.3); }
 
     input, select, textarea {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-      color: var(--text); padding: 10px 14px; font-family: 'Syne', sans-serif;
-      font-size: 14px; width: 100%; outline: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 10px 14px;
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      width: 100%;
+      outline: none;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,245,212,0.1); }
+
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0,245,212,0.1);
+    }
 
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
     @media (max-width: 640px) {
       .grid-2, .grid-3 { grid-template-columns: 1fr; }
     }
 
     .scanlines::after {
-      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
     }
 
     .noise {
-      position: fixed; inset: 0; pointer-events: none; z-index: 9998; opacity: 0.025;
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9998;
+      opacity: 0.02;
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
     }
 
     .modal-overlay {
-      position: fixed; inset: 0; background: rgba(5,8,16,0.85); backdrop-filter: blur(8px);
-      z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px;
+      position: fixed;
+      inset: 0;
+      background: rgba(5,8,16,0.85);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
     }
-    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; max-width: 480px; width: 100%; animation: fadeIn 0.3s ease; position: relative; }
 
-    .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
-    .toast { padding: 14px 20px; border-radius: 10px; font-size: 14px; font-weight: 500; animation: fadeIn 0.3s ease; min-width: 260px; display: flex; align-items: center; gap: 10px; }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 500px;
+      width: 100%;
+      animation: fadeIn 0.3s ease;
+      position: relative;
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      animation: fadeIn 0.3s ease;
+      min-width: 260px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
     .toast-success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6ee7b7; }
     .toast-error   { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
     .toast-info    { background: rgba(0,245,212,0.1); border: 1px solid rgba(0,245,212,0.3); color: var(--accent); }
 
-    .nav { display: flex; align-items: center; gap: 4px; }
-    .nav-item { padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; color: var(--muted); letter-spacing: 0.03em; }
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-item {
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+
     .nav-item.active { color: var(--accent); background: rgba(0,245,212,0.08); }
     .nav-item:hover:not(.active) { color: var(--text); background: var(--surface); }
 
-    .slot { border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; font-size: 12px; font-family: 'JetBrains Mono'; }
-    .slot-available { background: rgba(0,245,212,0.06); border-color: rgba(0,245,212,0.2); color: var(--accent); }
-    .slot-available:hover { background: rgba(0,245,212,0.15); border-color: var(--accent); transform: scale(1.02); }
-    .slot-booked { background: rgba(124,58,237,0.1); border-color: rgba(124,58,237,0.25); color: #a78bfa; cursor: default; }
-    .slot-blocked { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); color: #f87171; cursor: default; }
-    .slot-selected { background: rgba(0,245,212,0.2); border-color: var(--accent); box-shadow: var(--glow); color: var(--accent); }
-    .slot-buffer { background: rgba(100,116,139,0.06); border-color: rgba(100,116,139,0.15); color: var(--muted); cursor: default; font-size: 10px; }
+    .slot {
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: 1px solid transparent;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .slot-available {
+      background: rgba(0,245,212,0.06);
+      border-color: rgba(0,245,212,0.2);
+      color: var(--accent);
+    }
+
+    .slot-available:hover {
+      background: rgba(0,245,212,0.15);
+      border-color: var(--accent);
+      transform: scale(1.02);
+    }
+
+    .slot-booked {
+      background: rgba(124,58,237,0.1);
+      border-color: rgba(124,58,237,0.25);
+      color: #a78bfa;
+      cursor: default;
+    }
+
+    .slot-blocked {
+      background: rgba(239,68,68,0.08);
+      border-color: rgba(239,68,68,0.2);
+      color: #f87171;
+      cursor: default;
+    }
+
+    .slot-selected {
+      background: rgba(0,245,212,0.2);
+      border-color: var(--accent);
+      box-shadow: var(--glow);
+      color: var(--accent);
+    }
+
+    .slot-buffer {
+      background: rgba(100,116,139,0.06);
+      border-color: rgba(100,116,139,0.15);
+      color: var(--muted);
+      cursor: default;
+      font-size: 10px;
+    }
 
     .stat-card { position: relative; overflow: hidden; }
-    .stat-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%); pointer-events: none; }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
+      pointer-events: none;
+    }
 
     .qr-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
     .qr-cell { aspect-ratio: 1; border-radius: 1px; }
 
-    .progress-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.5s ease; }
+    .progress-bar {
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width 0.5s ease;
+    }
 
     .cyber-corner { position: relative; }
     .cyber-corner::before, .cyber-corner::after {
-      content: ''; position: absolute; width: 12px; height: 12px;
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
     }
-    .cyber-corner::before { top: 0; left: 0; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
-    .cyber-corner::after  { bottom: 0; right: 0; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+    .cyber-corner::before {
+      top: 0;
+      left: 0;
+      border-top: 2px solid var(--accent);
+      border-left: 2px solid var(--accent);
+    }
+
+    .cyber-corner::after {
+      bottom: 0;
+      right: 0;
+      border-bottom: 2px solid var(--accent);
+      border-right: 2px solid var(--accent);
+    }
   `}</style>
 );
 
@@ -171,6 +348,7 @@ const DURATIONS = [
 
 const DAYS = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
 const MONTHS = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
+const todayStr = toLocalDateStr(new Date());
 
 function formatCFA(n) {
   return (n || 0).toLocaleString("fr-FR") + " CFA";
@@ -273,6 +451,8 @@ function makeUserFromDb(row) {
     id: row.id,
     name: row.full_name || "Joueur",
     phone: row.phone || "",
+    email: row.email || "",
+    role: row.role || "customer",
     isAdmin: row.role === "admin",
     memberStatus: isActiveMember ? "active" : isExpiredMember ? "expired" : null,
     daysLeft,
@@ -351,21 +531,37 @@ function expandBlockedSlotRecord(row) {
   }));
 }
 
-const TODAY = new Date();
-const todayStr = toLocalDateStr(TODAY);
-
-function Logo() {
+function Logo({ size = 72, clickable = false, onClick }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div style={{ width: 36, height: 36, borderRadius: 8, background: "linear-gradient(135deg, var(--accent2), var(--accent))", display: "flex", alignItems: "center", justifyContent: "center", animation: "float 3s ease-in-out infinite" }}>
-        <span style={{ fontSize: 20 }}>🥽</span>
-      </div>
-      <div>
-        <div className="orbitron" style={{ fontSize: 18, fontWeight: 900, letterSpacing: "0.05em", lineHeight: 1 }}>
-          JEUX<span style={{ color: "var(--accent)" }}>DIA</span>
-        </div>
-        <div className="mono" style={{ fontSize: 9, color: "var(--muted)", letterSpacing: "0.15em" }}>VR LOUNGE · LOMÉ</div>
-      </div>
+    <div
+      onClick={onClick}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 18,
+        padding: 8,
+        background: "linear-gradient(135deg, rgba(124,58,237,0.22), rgba(0,245,212,0.14))",
+        border: "1px solid rgba(0,245,212,0.22)",
+        boxShadow: "var(--glow)",
+        animation: "float 3s ease-in-out infinite, pulse-glow 3s ease-in-out infinite",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: clickable ? "pointer" : "default",
+        flexShrink: 0,
+      }}
+    >
+      <img
+        src={logoImg}
+        alt="Jeux Dia"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          display: "block",
+          borderRadius: 12,
+        }}
+      />
     </div>
   );
 }
@@ -472,11 +668,21 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
                     setMethod(m);
                     setStep("phone");
                   }}
-                  style={{ border: `1px solid ${method === m ? "var(--accent)" : "var(--border)"}`, borderRadius: 10, padding: 20, cursor: "pointer", textAlign: "center", transition: "all 0.2s", background: method === m ? "rgba(0,245,212,0.08)" : "var(--surface)" }}
+                  style={{
+                    border: `1px solid ${method === m ? "var(--accent)" : "var(--border)"}`,
+                    borderRadius: 10,
+                    padding: 20,
+                    cursor: "pointer",
+                    textAlign: "center",
+                    transition: "all 0.2s",
+                    background: method === m ? "rgba(0,245,212,0.08)" : "var(--surface)"
+                  }}
                 >
                   <div style={{ fontSize: 28, marginBottom: 8 }}>{m === "T-Money" ? "🔵" : "🟠"}</div>
                   <div className="orbitron" style={{ fontSize: 14, fontWeight: 700 }}>{m}</div>
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{m === "T-Money" ? "Togocel" : "Moov Africa"}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                    {m === "T-Money" ? "Togocel" : "Moov Africa"}
+                  </div>
                 </div>
               ))}
             </div>
@@ -489,9 +695,14 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
         {step === "phone" && (
           <div className="fade-in">
             <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 8 }}>Numéro {method} :</p>
-            <input placeholder="+228 90 XX XX XX" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ marginBottom: 20, fontSize: 16 }} />
+            <input
+              placeholder="+228 90 XX XX XX"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              style={{ marginBottom: 20, fontSize: 16 }}
+            />
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 20, padding: 12, background: "var(--surface)", borderRadius: 8 }}>
-              Vous recevrez une demande de paiement de <strong style={{ color: "var(--accent3)" }}>{formatCFA(amount)}</strong> sur le numéro saisi. Confirmez sur votre téléphone.
+              Vous recevrez une demande de paiement de <strong style={{ color: "var(--accent3)" }}>{formatCFA(amount)}</strong> sur le numéro saisi.
             </div>
             <div style={{ display: "flex", gap: 12 }}>
               <button className="btn btn-ghost" onClick={() => setStep("method")} style={{ flex: 1 }}>← Retour</button>
@@ -504,10 +715,19 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
 
         {step === "processing" && (
           <div className="fade-in" style={{ textAlign: "center", padding: "20px 0" }}>
-            <div style={{ width: 60, height: 60, border: "3px solid var(--border)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 20px" }} />
+            <div
+              style={{
+                width: 60,
+                height: 60,
+                border: "3px solid var(--border)",
+                borderTopColor: "var(--accent)",
+                borderRadius: "50%",
+                animation: "spin 0.8s linear infinite",
+                margin: "0 auto 20px"
+              }}
+            />
             <p className="orbitron" style={{ color: "var(--accent)", marginBottom: 8 }}>TRAITEMENT EN COURS</p>
             <p style={{ color: "var(--muted)", fontSize: 13 }}>Attente de confirmation {method}...</p>
-            <p className="mono" style={{ color: "var(--muted)", fontSize: 11, marginTop: 8, animation: "blink 1.5s ease infinite" }}>NE PAS FERMER CETTE FENÊTRE</p>
           </div>
         )}
 
@@ -523,9 +743,6 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
             </div>
             <p className="mono" style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}>CODE DE RÉSERVATION</p>
             <p className="orbitron" style={{ fontSize: 20, fontWeight: 900, letterSpacing: "0.15em", marginBottom: 24 }}>{confirmCode}</p>
-            <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 20 }}>
-              Présentez ce QR code à l'accueil. Une confirmation WhatsApp vous sera envoyée.
-            </p>
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onSuccess(confirmCode)}>
               Terminé ✓
             </button>
@@ -533,7 +750,21 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
         )}
 
         {step !== "processing" && step !== "done" && (
-          <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}>✕</button>
+          <button
+            onClick={onClose}
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              background: "none",
+              border: "none",
+              color: "var(--muted)",
+              cursor: "pointer",
+              fontSize: 18
+            }}
+          >
+            ✕
+          </button>
         )}
       </div>
     </div>
@@ -565,19 +796,35 @@ function BlockModal({ slot, onClose, onBlock }) {
 
 function AuthModal({ mode, onClose, onLogin, onRegister }) {
   const [tab, setTab] = useState(mode || "login");
-  const [form, setForm] = useState({ name: "", phone: "", password: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
+
   const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-        <Logo />
-        <div style={{ display: "flex", gap: 0, marginTop: 24, marginBottom: 24, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+          <Logo size={110} />
+        </div>
+
+        <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: "1px solid var(--border)" }}>
           {["login", "register"].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              style={{ flex: 1, padding: "10px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "Syne", borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent", color: tab === t ? "var(--accent)" : "var(--muted)", letterSpacing: "0.05em" }}
+              style={{
+                flex: 1,
+                padding: "10px",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+                fontFamily: "Syne",
+                borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent",
+                color: tab === t ? "var(--accent)" : "var(--muted)",
+                letterSpacing: "0.05em"
+              }}
             >
               {t === "login" ? "CONNEXION" : "INSCRIPTION"}
             </button>
@@ -587,16 +834,17 @@ function AuthModal({ mode, onClose, onLogin, onRegister }) {
         {tab === "login" ? (
           <div className="fade-in">
             <div style={{ marginBottom: 16 }}>
-              <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>TÉLÉPHONE</label>
-              <input placeholder="+228 90 XX XX XX" value={form.phone} onChange={upd("phone")} />
+              <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>EMAIL</label>
+              <input type="email" placeholder="exemple@email.com" value={form.email} onChange={upd("email")} />
             </div>
+
             <div style={{ marginBottom: 24 }}>
               <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>MOT DE PASSE</label>
               <input type="password" placeholder="••••••••" value={form.password} onChange={upd("password")} />
             </div>
-            <button className="btn btn-primary" style={{ width: "100%", marginBottom: 12 }} onClick={() => onLogin(form)}>Se connecter →</button>
-            <button className="btn btn-ghost" style={{ width: "100%", fontSize: 12 }} onClick={() => onLogin({ ...form, isAdmin: true, name: "Admin Jeux Dia" })}>
-              🔑 Connexion Admin (démo)
+
+            <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onLogin(form)}>
+              Se connecter →
             </button>
           </div>
         ) : (
@@ -605,20 +853,43 @@ function AuthModal({ mode, onClose, onLogin, onRegister }) {
               <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>NOM COMPLET</label>
               <input placeholder="Ex: Koffi Amega" value={form.name} onChange={upd("name")} />
             </div>
+
             <div style={{ marginBottom: 16 }}>
               <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>TÉLÉPHONE</label>
               <input placeholder="+228 90 XX XX XX" value={form.phone} onChange={upd("phone")} />
             </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>EMAIL</label>
+              <input type="email" placeholder="exemple@email.com" value={form.email} onChange={upd("email")} />
+            </div>
+
             <div style={{ marginBottom: 24 }}>
               <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>MOT DE PASSE</label>
               <input type="password" placeholder="••••••••" value={form.password} onChange={upd("password")} />
             </div>
+
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onRegister(form)}>
               Créer mon compte →
             </button>
           </div>
         )}
-        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}>✕</button>
+
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            background: "none",
+            border: "none",
+            color: "var(--muted)",
+            cursor: "pointer",
+            fontSize: 18
+          }}
+        >
+          ✕
+        </button>
       </div>
     </div>
   );
@@ -662,7 +933,7 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
 
     const allowed = canBookSlots(bookings, dateStr, time, selectedDuration.slots);
     if (!allowed) {
-      addToast(`Impossible de réserver ${selectedDuration.label} à ${time}. Des créneaux sont déjà occupés.`, "error");
+      addToast(`Impossible de réserver ${selectedDuration.label} à ${time}.`, "error");
       return;
     }
 
@@ -682,6 +953,7 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
           </span>
           <button className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((w) => w + 1)}>Semaine suivante →</button>
         </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
           {weekDates.map((d, i) => {
             const active = d.toDateString() === selectedDate.toDateString();
@@ -691,14 +963,28 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
             const nowDay = new Date();
             nowDay.setHours(0, 0, 0, 0);
             const isPast = compare < nowDay;
+
             return (
               <div
                 key={i}
                 onClick={() => !isPast && setSelectedDate(new Date(d))}
-                style={{ textAlign: "center", padding: "10px 4px", borderRadius: 8, cursor: isPast ? "default" : "pointer", background: active ? "rgba(0,245,212,0.12)" : "transparent", border: active ? "1px solid var(--accent)" : "1px solid transparent", opacity: isPast ? 0.35 : 1, transition: "all 0.15s" }}
+                style={{
+                  textAlign: "center",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  cursor: isPast ? "default" : "pointer",
+                  background: active ? "rgba(0,245,212,0.12)" : "transparent",
+                  border: active ? "1px solid var(--accent)" : "1px solid transparent",
+                  opacity: isPast ? 0.35 : 1,
+                  transition: "all 0.15s"
+                }}
               >
-                <div style={{ fontSize: 10, color: active ? "var(--accent)" : "var(--muted)", marginBottom: 4, letterSpacing: "0.05em" }}>{DAYS[d.getDay()]}</div>
-                <div className="orbitron" style={{ fontSize: 15, fontWeight: 700, color: active ? "var(--accent)" : isToday ? "var(--accent3)" : "var(--text)" }}>{d.getDate()}</div>
+                <div style={{ fontSize: 10, color: active ? "var(--accent)" : "var(--muted)", marginBottom: 4, letterSpacing: "0.05em" }}>
+                  {DAYS[d.getDay()]}
+                </div>
+                <div className="orbitron" style={{ fontSize: 15, fontWeight: 700, color: active ? "var(--accent)" : isToday ? "var(--accent3)" : "var(--text)" }}>
+                  {d.getDate()}
+                </div>
                 {isToday && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent3)", margin: "4px auto 0" }} />}
               </div>
             );
@@ -712,7 +998,16 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
             <div
               key={d.label}
               onClick={() => setSelectedDuration(d)}
-              style={{ flex: 1, padding: "14px", borderRadius: 10, cursor: "pointer", border: `1px solid ${selectedDuration.label === d.label ? "var(--accent)" : "var(--border)"}`, background: selectedDuration.label === d.label ? "rgba(0,245,212,0.08)" : "var(--card)", textAlign: "center", transition: "all 0.2s" }}
+              style={{
+                flex: 1,
+                padding: "14px",
+                borderRadius: 10,
+                cursor: "pointer",
+                border: `1px solid ${selectedDuration.label === d.label ? "var(--accent)" : "var(--border)"}`,
+                background: selectedDuration.label === d.label ? "rgba(0,245,212,0.08)" : "var(--card)",
+                textAlign: "center",
+                transition: "all 0.2s"
+              }}
             >
               <div className="orbitron" style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{d.label}</div>
               <div style={{ fontSize: 13, color: isMember ? "var(--success)" : "var(--accent3)", fontWeight: 700 }}>
@@ -756,6 +1051,7 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
             const info = getSlotInfo(time);
             const isSelected = selectedSlot === time;
             const cls = isSelected ? "slot slot-selected" : `slot slot-${status}`;
+
             return (
               <div
                 key={time}
@@ -770,10 +1066,14 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
                   <>
                     <span>{time}</span>
                     {status === "booked" && info?.name && info?.isPrimary && (
-                      <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginTop: 2 }}>{info.name.split(" ")[0]}</span>
+                      <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginTop: 2 }}>
+                        {info.name.split(" ")[0]}
+                      </span>
                     )}
                     {status === "blocked" && (
-                      <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginTop: 2 }}>{info?.reason}</span>
+                      <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginTop: 2 }}>
+                        {info?.reason}
+                      </span>
                     )}
                   </>
                 )}
@@ -953,7 +1253,9 @@ function AdminDashboard({ bookings, payments, onUnblock }) {
         ].map((s) => (
           <div key={s.label} className="card stat-card">
             <div style={{ fontSize: 28, marginBottom: 8 }}>{s.icon}</div>
-            <div className="orbitron" style={{ fontSize: s.value.toString().length > 10 ? 13 : 18, fontWeight: 900, color: s.color, marginBottom: 4 }}>{s.value}</div>
+            <div className="orbitron" style={{ fontSize: s.value.toString().length > 10 ? 13 : 18, fontWeight: 900, color: s.color, marginBottom: 4 }}>
+              {s.value}
+            </div>
             <div style={{ color: "var(--muted)", fontSize: 12 }}>{s.label}</div>
           </div>
         ))}
@@ -982,8 +1284,11 @@ function AdminDashboard({ bookings, payments, onUnblock }) {
         <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>
           RÉSERVATIONS DU JOUR — {todayStr}
         </h3>
+
         {bookings.filter((b) => b.dateStr === todayStr).length === 0 ? (
-          <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>Aucune réservation pour aujourd'hui</p>
+          <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>
+            Aucune réservation pour aujourd'hui
+          </p>
         ) : (
           <div>
             {bookings
@@ -1008,9 +1313,20 @@ function AdminDashboard({ bookings, payments, onUnblock }) {
                       </div>
                     )}
                   </div>
-                  {b.type === "casual" && b.isPrimary !== false && <span className="tag tag-amber">CASUAL · {formatCFA(b.amount)}</span>}
-                  {b.type === "member" && b.isPrimary !== false && <span className="tag tag-green">MEMBRE · 0 CFA</span>}
-                  {b.type === "blocked" && <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>Débloquer</button>}
+
+                  {b.type === "casual" && b.isPrimary !== false && (
+                    <span className="tag tag-amber">CASUAL · {formatCFA(b.amount)}</span>
+                  )}
+
+                  {b.type === "member" && b.isPrimary !== false && (
+                    <span className="tag tag-green">MEMBRE · 0 CFA</span>
+                  )}
+
+                  {b.type === "blocked" && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>
+                      Débloquer
+                    </button>
+                  )}
                 </div>
               ))}
           </div>
@@ -1021,7 +1337,15 @@ function AdminDashboard({ bookings, payments, onUnblock }) {
 }
 
 function ProfilePage({ user, bookings }) {
-  const myBookings = bookings.filter((b) => b.phone === user?.phone && b.status === "confirmed" && b.isPrimary !== false && b.type !== "buffer" && b.type !== "blocked");
+  const myBookings = bookings.filter(
+    (b) =>
+      b.phone === user?.phone &&
+      b.status === "confirmed" &&
+      b.isPrimary !== false &&
+      b.type !== "buffer" &&
+      b.type !== "blocked"
+  );
+
   const isActive = user?.memberStatus === "active";
 
   return (
@@ -1054,7 +1378,9 @@ function ProfilePage({ user, bookings }) {
       <div className="card">
         <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>MES RÉSERVATIONS</h3>
         {myBookings.length === 0 ? (
-          <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>Aucune réservation pour le moment.</p>
+          <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>
+            Aucune réservation pour le moment.
+          </p>
         ) : (
           myBookings.map((b) => (
             <div key={b.id || b.slotKey} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
@@ -1118,81 +1444,110 @@ export default function App() {
     setLoading(false);
   }, [addToast]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const fetchCurrentProfile = useCallback(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authUser = sessionData?.session?.user;
 
-  const handleLogin = async (form) => {
-    if (form.isAdmin) {
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .eq("role", "admin")
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data) {
-        addToast("Admin introuvable dans la base.", "error");
-        return;
-      }
-
-      const u = makeUserFromDb(data);
-      setUser(u);
-      setShowAuth(false);
-      setPage("admin");
-      addToast(`Bienvenue ${u.name} !`, "success");
-      return;
-    }
-
-    if (!form.phone) {
-      addToast("Entrez votre numéro de téléphone.", "error");
+    if (!authUser) {
+      setUser(null);
       return;
     }
 
     const { data, error } = await supabase
       .from("users")
       .select("*")
-      .eq("phone", form.phone)
+      .eq("id", authUser.id)
       .maybeSingle();
 
-    if (error) {
-      addToast("Erreur de connexion.", "error");
+    if (!error && data) {
+      setUser(makeUserFromDb(data));
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    fetchCurrentProfile();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      fetchCurrentProfile();
+    });
+
+    return () => {
+      listener?.subscription?.unsubscribe?.();
+    };
+  }, [loadData, fetchCurrentProfile]);
+
+  const handleLogin = async (form) => {
+    if (!form.email || !form.password) {
+      addToast("Entrez email et mot de passe.", "error");
       return;
     }
 
-    if (!data) {
-      addToast("Aucun compte trouvé avec ce numéro.", "error");
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: form.email,
+      password: form.password,
+    });
+
+    if (authError) {
+      addToast(authError.message, "error");
+      return;
+    }
+
+    const authUser = authData.user;
+
+    if (!authUser) {
+      addToast("Utilisateur introuvable.", "error");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    if (error || !data) {
+      addToast("Profil utilisateur introuvable.", "error");
       return;
     }
 
     const u = makeUserFromDb(data);
     setUser(u);
     setShowAuth(false);
+    setPage(u.isAdmin ? "admin" : "calendar");
     addToast(`Bienvenue ${u.name} !`, "success");
   };
 
   const handleRegister = async (form) => {
-    if (!form.name || !form.phone) {
-      addToast("Entrez votre nom et votre numéro.", "error");
+    if (!form.name || !form.phone || !form.email || !form.password) {
+      addToast("Remplissez nom, téléphone, email et mot de passe.", "error");
       return;
     }
 
-    const existing = await supabase
-      .from("users")
-      .select("*")
-      .eq("phone", form.phone)
-      .maybeSingle();
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: form.email,
+      password: form.password,
+    });
 
-    if (existing.data) {
-      addToast("Ce numéro existe déjà. Connectez-vous.", "error");
+    if (authError) {
+      addToast(authError.message, "error");
+      return;
+    }
+
+    const authUser = authData.user;
+
+    if (!authUser) {
+      addToast("Compte créé, mais utilisateur introuvable.", "error");
       return;
     }
 
     const { data, error } = await supabase
       .from("users")
       .insert({
+        id: authUser.id,
         full_name: form.name,
         phone: form.phone,
+        email: form.email,
         role: "customer",
         is_member: false,
         member_expiry: null,
@@ -1201,14 +1556,14 @@ export default function App() {
       .single();
 
     if (error) {
-      addToast("Erreur pendant la création du compte.", "error");
+      addToast("Compte auth créé, mais erreur profil users.", "error");
       return;
     }
 
     const u = makeUserFromDb(data);
     setUser(u);
     setShowAuth(false);
-    addToast("Compte créé avec succès !", "success");
+    addToast("Compte sécurisé créé avec succès !", "success");
   };
 
   const handleBook = async (booking) => {
@@ -1250,13 +1605,13 @@ export default function App() {
       await supabase.from("payments").insert({
         user_id: user.id || null,
         amount: booking.amount,
-        method: booking.duration ? "mobile_money" : "membership_pass",
+        method: "mobile_money",
         status: "paid",
       });
     }
 
     await loadData();
-    addToast(`Session réservée pour ${booking.time} ! Code: ${booking.confirmCode}`, "success");
+    addToast(`Session réservée pour ${booking.time} !`, "success");
   };
 
   const handleBlock = (slotInfo) => {
@@ -1389,6 +1744,13 @@ export default function App() {
     addToast("Membership renouvelé !", "success");
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setPage("calendar");
+    addToast("Déconnecté.", "info");
+  };
+
   const navItems = user?.isAdmin
     ? [{ id: "admin", label: "Dashboard" }, { id: "calendar", label: "Calendrier" }]
     : [{ id: "calendar", label: "Réserver" }, { id: "membership", label: "Membership" }, ...(user ? [{ id: "profile", label: "Profil" }] : [])];
@@ -1399,25 +1761,41 @@ export default function App() {
       <GlobalStyle />
 
       <header style={{ background: "rgba(13,18,32,0.9)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100, padding: "0 20px" }}>
-        <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
-          <Logo />
+        <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 72 }}>
+          <Logo size={78} clickable onClick={() => setPage("calendar")} />
+
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <nav className="nav" style={{ display: "flex" }}>
               {navItems.map((n) => (
-                <div key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>{n.label}</div>
+                <div key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
+                  {n.label}
+                </div>
               ))}
             </nav>
+
             {user ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+              <>
                 <div
-                  style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent2), var(--accent))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, cursor: "pointer" }}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, var(--accent2), var(--accent))",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 14,
+                    cursor: "pointer"
+                  }}
                   onClick={() => setPage(user?.isAdmin ? "admin" : "profile")}
                 >
                   {user.name.charAt(0)}
                 </div>
-              </div>
+
+                <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sortir</button>
+              </>
             ) : (
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => { setAuthMode("login"); setShowAuth(true); }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setAuthMode("login"); setShowAuth(true); }}>
                 Connexion
               </button>
             )}
