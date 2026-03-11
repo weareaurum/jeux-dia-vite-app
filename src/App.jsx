@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 const GlobalStyle = () => (
   <style>{`
@@ -171,7 +172,9 @@ const DURATIONS = [
 const DAYS = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
 const MONTHS = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
 
-function formatCFA(n) { return n.toLocaleString("fr-FR") + " CFA"; }
+function formatCFA(n) {
+  return (n || 0).toLocaleString("fr-FR") + " CFA";
+}
 
 function toLocalDateStr(date) {
   const y = date.getFullYear();
@@ -205,10 +208,6 @@ function getWeekDates(offset = 0) {
   });
 }
 
-function slotKey(date, time) {
-  return `${toLocalDateStr(date)}_${time}`;
-}
-
 function bookingSlotKeyFromParts(dateStr, time) {
   return `${dateStr}_${time}`;
 }
@@ -239,18 +238,121 @@ function getSlotStatusForDay(bookings, dateStr, time) {
   return "booked";
 }
 
+function durationLabelToMinutes(label) {
+  return label === "1 heure" ? 60 : 15;
+}
+
+function durationMinutesToLabel(minutes) {
+  return minutes >= 60 ? "1 heure" : "15 min";
+}
+
+function durationMinutesToSlots(minutes) {
+  return minutes >= 60 ? 4 : 1;
+}
+
+function combineDateAndTime(dateStr, time) {
+  return new Date(`${dateStr}T${time}:00`);
+}
+
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + minutes * 60000);
+}
+
+function formatTimeHHMM(date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function makeUserFromDb(row) {
+  const now = new Date();
+  const expiry = row?.member_expiry ? new Date(row.member_expiry) : null;
+  const isActiveMember = !!row?.is_member && expiry && expiry > now;
+  const isExpiredMember = !!row?.is_member && expiry && expiry <= now;
+  const daysLeft = expiry ? Math.max(0, Math.ceil((expiry - now) / 86400000)) : 0;
+
+  return {
+    id: row.id,
+    name: row.full_name || "Joueur",
+    phone: row.phone || "",
+    isAdmin: row.role === "admin",
+    memberStatus: isActiveMember ? "active" : isExpiredMember ? "expired" : null,
+    daysLeft,
+    memberExpiry: row.member_expiry || null,
+  };
+}
+
+function expandBookingRecord(row) {
+  const start = new Date(row.start_time);
+  const dateStr = toLocalDateStr(start);
+  const startTime = formatTimeHHMM(start);
+  const durationMinutes = row.duration || 15;
+  const slots = durationMinutesToSlots(durationMinutes);
+  const slotTimes = getSlotsForDuration(startTime, slots);
+  const type = row.price > 0 ? "casual" : "member";
+
+  const out = slotTimes.map((time, i) => ({
+    id: `${row.id}_${i}`,
+    sourceId: row.id,
+    slotKey: bookingSlotKeyFromParts(dateStr, time),
+    dateStr,
+    time,
+    duration: durationMinutesToLabel(durationMinutes),
+    name: row.customer_name,
+    phone: row.phone,
+    type,
+    status: row.status || "confirmed",
+    amount: i === 0 ? (row.price || 0) : 0,
+    isPrimary: i === 0,
+    confirmCode: row.confirm_code || null,
+  }));
+
+  const startIdx = TIME_SLOTS.indexOf(startTime);
+  const bufferTime = TIME_SLOTS[startIdx + slots];
+
+  if (bufferTime) {
+    out.push({
+      id: `${row.id}_buffer`,
+      sourceId: row.id,
+      slotKey: bookingSlotKeyFromParts(dateStr, bufferTime),
+      dateStr,
+      time: bufferTime,
+      duration: "buffer",
+      type: "buffer",
+      status: "buffer",
+      amount: 0,
+    });
+  }
+
+  return out;
+}
+
+function expandBlockedSlotRecord(row) {
+  const start = new Date(row.start_time);
+  const end = new Date(row.end_time);
+  const dateStr = toLocalDateStr(start);
+  const startTime = formatTimeHHMM(start);
+  const totalMinutes = Math.max(20, Math.ceil((end - start) / 60000));
+  const blocks = Math.max(1, Math.ceil(totalMinutes / 20));
+  const slotTimes = getSlotsForDuration(startTime, blocks);
+
+  return slotTimes.map((time, i) => ({
+    id: `blk_${row.id}_${i}`,
+    sourceId: row.id,
+    slotKey: bookingSlotKeyFromParts(dateStr, time),
+    dateStr,
+    time,
+    duration: null,
+    name: null,
+    phone: null,
+    type: "blocked",
+    status: "blocked",
+    amount: 0,
+    reason: row.reason,
+    isPrimary: i === 0,
+  }));
+}
+
 const TODAY = new Date();
 const todayStr = toLocalDateStr(TODAY);
-
-const INITIAL_BOOKINGS = [
-  { id: "b1_0", slotKey: `${todayStr}_10:00`, dateStr: todayStr, time: "10:00", duration: "1 heure", name: "Koffi A.", phone: "+228 90 11 22 33", type: "member", status: "confirmed", amount: 0, isPrimary: true, confirmCode: "JD-DEMO01" },
-  { id: "b1_1", slotKey: `${todayStr}_10:20`, dateStr: todayStr, time: "10:20", duration: "1 heure", name: "Koffi A.", phone: "+228 90 11 22 33", type: "member", status: "confirmed", amount: 0, isPrimary: false, confirmCode: "JD-DEMO01" },
-  { id: "b1_2", slotKey: `${todayStr}_10:40`, dateStr: todayStr, time: "10:40", duration: "1 heure", name: "Koffi A.", phone: "+228 90 11 22 33", type: "member", status: "confirmed", amount: 0, isPrimary: false, confirmCode: "JD-DEMO01" },
-  { id: "b1_3", slotKey: `${todayStr}_11:00`, dateStr: todayStr, time: "11:00", duration: "1 heure", name: "Koffi A.", phone: "+228 90 11 22 33", type: "member", status: "confirmed", amount: 0, isPrimary: false, confirmCode: "JD-DEMO01" },
-  { id: "b1_buf", slotKey: `${todayStr}_11:20`, dateStr: todayStr, time: "11:20", duration: "buffer", name: null, type: "buffer", status: "buffer", amount: 0 },
-  { id: "b4", slotKey: `${todayStr}_13:00`, dateStr: todayStr, time: "13:00", duration: "15 min", name: "Ami D.", phone: "+228 91 44 55 66", type: "casual", status: "confirmed", amount: 1000, isPrimary: true, confirmCode: "JD-DEMO02" },
-  { id: "b5", slotKey: `${todayStr}_14:40`, dateStr: todayStr, time: "14:40", duration: null, name: null, type: "blocked", status: "blocked", amount: 0, reason: "Maintenance" },
-];
 
 function Logo() {
   return (
@@ -544,6 +646,11 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
   const handleSlotClick = (time) => {
     const status = getSlotStatus(time);
 
+    if (!user && !isAdmin) {
+      addToast("Connectez-vous d'abord pour réserver.", "info");
+      return;
+    }
+
     if (isAdmin) {
       if (status === "available") {
         onBlock({ time, dateStr, slotKey: bookingSlotKeyFromParts(dateStr, time) });
@@ -800,9 +907,13 @@ function MembershipPage({ user, onActivate, onRenew }) {
         <PaymentModal
           booking={{ amount: 10000, isMembership: true }}
           onClose={() => setPayModal(false)}
-          onSuccess={(code) => {
+          onSuccess={async () => {
             setPayModal(false);
-            (isExpired ? onRenew : onActivate)(code);
+            if (isExpired) {
+              await onRenew();
+            } else {
+              await onActivate();
+            }
           }}
         />
       )}
@@ -810,17 +921,33 @@ function MembershipPage({ user, onActivate, onRenew }) {
   );
 }
 
-function AdminDashboard({ bookings, onUnblock }) {
-  const todayBookings = bookings.filter((b) => b.dateStr === todayStr && b.status === "confirmed" && b.isPrimary !== false && b.type !== "membership");
-  const bookingRevenue = bookings.filter((b) => b.status === "confirmed" && b.isPrimary !== false).reduce((s, b) => s + (b.amount || 0), 0);
-  const tmoney = Math.round(bookingRevenue * 0.55);
-  const flooz = bookingRevenue - tmoney;
+function AdminDashboard({ bookings, payments, onUnblock }) {
+  const todayBookings = bookings.filter(
+    (b) =>
+      b.dateStr === todayStr &&
+      b.status === "confirmed" &&
+      b.isPrimary !== false &&
+      b.type !== "buffer" &&
+      b.type !== "blocked"
+  );
+
+  const totalRevenue = payments
+    .filter((p) => p.status === "paid")
+    .reduce((s, p) => s + (p.amount || 0), 0);
+
+  const membershipRevenue = payments
+    .filter((p) => p.status === "paid" && p.method === "membership_pass")
+    .reduce((s, p) => s + (p.amount || 0), 0);
+
+  const sessionRevenue = totalRevenue - membershipRevenue;
+  const tmoney = Math.round(sessionRevenue * 0.55);
+  const flooz = sessionRevenue - tmoney;
 
   return (
     <div className="fade-in">
       <div className="grid-3" style={{ marginBottom: 20 }}>
         {[
-          { label: "Revenus Total", value: formatCFA(bookingRevenue), icon: "💰", color: "var(--accent3)" },
+          { label: "Revenus Total", value: formatCFA(totalRevenue), icon: "💰", color: "var(--accent3)" },
           { label: "Sessions aujourd'hui", value: todayBookings.length, icon: "🎮", color: "var(--accent)" },
           { label: "Via T-Money / Flooz", value: `${formatCFA(tmoney)} / ${formatCFA(flooz)}`, icon: "📱", color: "#a78bfa" },
         ].map((s) => (
@@ -835,9 +962,9 @@ function AdminDashboard({ bookings, onUnblock }) {
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>REVENUS PAR SOURCE</h3>
         {[
-          { label: "T-Money (Togocel)", amount: tmoney, pct: bookingRevenue ? Math.round((tmoney / bookingRevenue) * 100) : 0, color: "#3b82f6" },
-          { label: "Flooz (Moov Africa)", amount: flooz, pct: bookingRevenue ? Math.round((flooz / bookingRevenue) * 100) : 0, color: "#f97316" },
-          { label: "Memberships (30j)", amount: bookings.filter((b) => b.type === "membership" && b.status === "confirmed").reduce((s, b) => s + (b.amount || 0), 0), pct: bookingRevenue ? Math.round((bookings.filter((b) => b.type === "membership" && b.status === "confirmed").reduce((s, b) => s + (b.amount || 0), 0) / bookingRevenue) * 100) : 0, color: "#a78bfa" },
+          { label: "T-Money (Togocel)", amount: tmoney, pct: totalRevenue ? Math.round((tmoney / totalRevenue) * 100) : 0, color: "#3b82f6" },
+          { label: "Flooz (Moov Africa)", amount: flooz, pct: totalRevenue ? Math.round((flooz / totalRevenue) * 100) : 0, color: "#f97316" },
+          { label: "Memberships (30j)", amount: membershipRevenue, pct: totalRevenue ? Math.round((membershipRevenue / totalRevenue) * 100) : 0, color: "#a78bfa" },
         ].map((r) => (
           <div key={r.label} style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
@@ -873,11 +1000,6 @@ function AdminDashboard({ bookings, onUnblock }) {
                       </div>
                     ) : b.type === "buffer" ? (
                       <span style={{ color: "var(--muted)", fontSize: 12 }}>~ Buffer nettoyage</span>
-                    ) : b.type === "membership" ? (
-                      <div>
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</span>
-                        <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>Paiement membership</span>
-                      </div>
                     ) : (
                       <div>
                         <span style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</span>
@@ -888,7 +1010,6 @@ function AdminDashboard({ bookings, onUnblock }) {
                   </div>
                   {b.type === "casual" && b.isPrimary !== false && <span className="tag tag-amber">CASUAL · {formatCFA(b.amount)}</span>}
                   {b.type === "member" && b.isPrimary !== false && <span className="tag tag-green">MEMBRE · 0 CFA</span>}
-                  {b.type === "membership" && <span className="tag tag-purple">PASS · {formatCFA(b.amount)}</span>}
                   {b.type === "blocked" && <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>Débloquer</button>}
                 </div>
               ))}
@@ -900,7 +1021,7 @@ function AdminDashboard({ bookings, onUnblock }) {
 }
 
 function ProfilePage({ user, bookings }) {
-  const myBookings = bookings.filter((b) => b.phone === user?.phone && b.status === "confirmed" && b.type !== "membership" && b.isPrimary !== false);
+  const myBookings = bookings.filter((b) => b.phone === user?.phone && b.status === "confirmed" && b.isPrimary !== false && b.type !== "buffer" && b.type !== "blocked");
   const isActive = user?.memberStatus === "active";
 
   return (
@@ -956,9 +1077,11 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState("login");
-  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [blockTarget, setBlockTarget] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const addToast = useCallback((message, type = "success") => {
     const id = Date.now() + Math.random();
@@ -966,35 +1089,133 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
-  const handleLogin = (form) => {
-    const isAdmin = form.isAdmin;
-    const u = {
-      name: isAdmin ? "Admin Jeux Dia" : form.name || "Joueur Anonyme",
-      phone: form.phone || "+228 90 00 00 00",
-      isAdmin,
-      memberStatus: isAdmin ? null : null,
-      daysLeft: 18,
-      memberExpiry: new Date(Date.now() + 18 * 86400000).toISOString(),
-    };
+  const loadData = useCallback(async () => {
+    setLoading(true);
+
+    const [bookingsRes, blockedRes, paymentsRes] = await Promise.all([
+      supabase.from("bookings").select("*").order("start_time", { ascending: true }),
+      supabase.from("blocked_slots").select("*").order("start_time", { ascending: true }),
+      supabase.from("payments").select("*").order("created_at", { ascending: false }),
+    ]);
+
+    if (bookingsRes.error || blockedRes.error || paymentsRes.error) {
+      addToast("Erreur de chargement depuis Supabase.", "error");
+      setLoading(false);
+      return;
+    }
+
+    const expandedBookings = (bookingsRes.data || []).flatMap(expandBookingRecord);
+    const expandedBlocked = (blockedRes.data || []).flatMap(expandBlockedSlotRecord);
+
+    const combined = [...expandedBookings, ...expandedBlocked].sort((a, b) => {
+      const aKey = `${a.dateStr}_${a.time}`;
+      const bKey = `${b.dateStr}_${b.time}`;
+      return aKey.localeCompare(bKey);
+    });
+
+    setBookings(combined);
+    setPayments(paymentsRes.data || []);
+    setLoading(false);
+  }, [addToast]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleLogin = async (form) => {
+    if (form.isAdmin) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("role", "admin")
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        addToast("Admin introuvable dans la base.", "error");
+        return;
+      }
+
+      const u = makeUserFromDb(data);
+      setUser(u);
+      setShowAuth(false);
+      setPage("admin");
+      addToast(`Bienvenue ${u.name} !`, "success");
+      return;
+    }
+
+    if (!form.phone) {
+      addToast("Entrez votre numéro de téléphone.", "error");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("phone", form.phone)
+      .maybeSingle();
+
+    if (error) {
+      addToast("Erreur de connexion.", "error");
+      return;
+    }
+
+    if (!data) {
+      addToast("Aucun compte trouvé avec ce numéro.", "error");
+      return;
+    }
+
+    const u = makeUserFromDb(data);
     setUser(u);
     setShowAuth(false);
     addToast(`Bienvenue ${u.name} !`, "success");
-    if (isAdmin) setPage("admin");
   };
 
-  const handleRegister = (form) => {
-    const u = { name: form.name || "Nouveau Joueur", phone: form.phone || "+228 90 00 00 00", isAdmin: false, memberStatus: null, daysLeft: 0, memberExpiry: null };
+  const handleRegister = async (form) => {
+    if (!form.name || !form.phone) {
+      addToast("Entrez votre nom et votre numéro.", "error");
+      return;
+    }
+
+    const existing = await supabase
+      .from("users")
+      .select("*")
+      .eq("phone", form.phone)
+      .maybeSingle();
+
+    if (existing.data) {
+      addToast("Ce numéro existe déjà. Connectez-vous.", "error");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .insert({
+        full_name: form.name,
+        phone: form.phone,
+        role: "customer",
+        is_member: false,
+        member_expiry: null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      addToast("Erreur pendant la création du compte.", "error");
+      return;
+    }
+
+    const u = makeUserFromDb(data);
     setUser(u);
     setShowAuth(false);
     addToast("Compte créé avec succès !", "success");
   };
 
-  const handleBook = (booking) => {
-    const id = "b" + Date.now();
-    const startIdx = TIME_SLOTS.indexOf(booking.time);
-
-    if (startIdx === -1) {
-      addToast("Créneau invalide.", "error");
+  const handleBook = async (booking) => {
+    if (!user) {
+      addToast("Connectez-vous pour réserver.", "error");
+      setAuthMode("login");
+      setShowAuth(true);
       return;
     }
 
@@ -1003,41 +1224,38 @@ export default function App() {
       return;
     }
 
-    const newBookings = [];
+    const start = combineDateAndTime(booking.dateStr, booking.time);
+    const durationMinutes = durationLabelToMinutes(booking.duration);
+    const end = addMinutes(start, durationMinutes);
 
-    for (let i = 0; i < booking.slots; i++) {
-      const time = TIME_SLOTS[startIdx + i];
-      if (!time) break;
+    const { error } = await supabase.from("bookings").insert({
+      user_id: user.id || null,
+      customer_name: booking.name,
+      phone: booking.phone,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration: durationMinutes,
+      price: booking.amount,
+      status: "confirmed",
+      payment_method: booking.amount > 0 ? "mobile_money" : "member",
+      confirm_code: booking.confirmCode || null,
+    });
 
-      newBookings.push({
-        ...booking,
-        id: `${id}_${i}`,
-        time,
-        slotKey: bookingSlotKeyFromParts(booking.dateStr, time),
-        isPrimary: i === 0,
-        amount: i === 0 ? booking.amount : 0,
+    if (error) {
+      addToast("Erreur lors de l'enregistrement de la réservation.", "error");
+      return;
+    }
+
+    if (booking.amount > 0) {
+      await supabase.from("payments").insert({
+        user_id: user.id || null,
+        amount: booking.amount,
+        method: booking.duration ? "mobile_money" : "membership_pass",
+        status: "paid",
       });
     }
 
-    const bufferIdx = startIdx + booking.slots;
-    if (bufferIdx < TIME_SLOTS.length) {
-      const bufferTime = TIME_SLOTS[bufferIdx];
-      const bufferExists = bookings.some((b) => b.dateStr === booking.dateStr && b.time === bufferTime);
-      if (!bufferExists) {
-        newBookings.push({
-          id: `${id}_buffer`,
-          slotKey: bookingSlotKeyFromParts(booking.dateStr, bufferTime),
-          dateStr: booking.dateStr,
-          time: bufferTime,
-          duration: "buffer",
-          type: "buffer",
-          status: "buffer",
-          amount: 0,
-        });
-      }
-    }
-
-    setBookings((b) => [...b, ...newBookings]);
+    await loadData();
     addToast(`Session réservée pour ${booking.time} ! Code: ${booking.confirmCode}`, "success");
   };
 
@@ -1045,70 +1263,130 @@ export default function App() {
     setBlockTarget(slotInfo);
   };
 
-  const confirmBlock = (reason) => {
-    const exists = bookings.some((b) => b.dateStr === blockTarget.dateStr && b.time === blockTarget.time && b.type !== "buffer");
+  const confirmBlock = async (reason) => {
+    if (!blockTarget) return;
+
+    const exists = bookings.some(
+      (b) =>
+        b.dateStr === blockTarget.dateStr &&
+        b.time === blockTarget.time &&
+        b.type !== "buffer"
+    );
+
     if (exists) {
       addToast("Impossible de bloquer ce créneau car il est déjà occupé.", "error");
       setBlockTarget(null);
       return;
     }
-    const b = { ...blockTarget, id: "blk" + Date.now(), type: "blocked", status: "blocked", reason, amount: 0 };
-    setBookings((prev) => [...prev, b]);
+
+    const start = combineDateAndTime(blockTarget.dateStr, blockTarget.time);
+    const end = addMinutes(start, 20);
+
+    const { error } = await supabase.from("blocked_slots").insert({
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      reason,
+    });
+
+    if (error) {
+      addToast("Erreur pendant le blocage du créneau.", "error");
+      setBlockTarget(null);
+      return;
+    }
+
     setBlockTarget(null);
-    addToast(`Créneau ${b.time} bloqué : ${reason}`, "info");
+    await loadData();
+    addToast("Créneau bloqué", "info");
   };
 
-  const handleUnblock = (booking) => {
-    setBookings((prev) => prev.filter((b) => b.id !== booking.id));
+  const handleUnblock = async (booking) => {
+    if (!booking?.sourceId) {
+      addToast("Blocage introuvable.", "error");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("blocked_slots")
+      .delete()
+      .eq("id", booking.sourceId);
+
+    if (error) {
+      addToast("Erreur pendant le déblocage.", "error");
+      return;
+    }
+
+    await loadData();
     addToast("Créneau débloqué", "success");
   };
 
-  const handleActivateMembership = (code) => {
-    const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
-    const now = new Date();
+  const handleActivateMembership = async () => {
+    if (!user?.id) {
+      addToast("Connectez-vous d'abord.", "error");
+      return;
+    }
 
-    setUser((u) => ({ ...u, memberStatus: "active", daysLeft: 30, memberExpiry: expiry }));
-    setBookings((prev) => [
-      ...prev,
-      {
-        id: "m" + Date.now(),
-        dateStr: toLocalDateStr(now),
-        time: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-        slotKey: `membership_${Date.now()}`,
-        name: user?.name || "Client",
-        phone: user?.phone || "",
-        type: "membership",
-        status: "confirmed",
-        amount: 10000,
-        confirmCode: code,
-        isPrimary: true,
-      },
-    ]);
-    addToast("🏆 Membership activé ! Profitez de 30 jours d'accès gratuit.", "success");
+    const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
+
+    const { data, error } = await supabase
+      .from("users")
+      .update({
+        is_member: true,
+        member_expiry: expiry,
+      })
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      addToast("Erreur pendant l'activation du membership.", "error");
+      return;
+    }
+
+    await supabase.from("payments").insert({
+      user_id: user.id,
+      amount: 10000,
+      method: "membership_pass",
+      status: "paid",
+    });
+
+    setUser(makeUserFromDb(data));
+    await loadData();
+    addToast("Membership activé !", "success");
   };
 
-  const handleRenewMembership = (code) => {
-    const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
-    const now = new Date();
+  const handleRenewMembership = async () => {
+    if (!user?.id) {
+      addToast("Connectez-vous d'abord.", "error");
+      return;
+    }
 
-    setUser((u) => ({ ...u, memberStatus: "active", daysLeft: 30, memberExpiry: expiry }));
-    setBookings((prev) => [
-      ...prev,
-      {
-        id: "m" + Date.now(),
-        dateStr: toLocalDateStr(now),
-        time: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-        slotKey: `membership_${Date.now()}`,
-        name: user?.name || "Client",
-        phone: user?.phone || "",
-        type: "membership",
-        status: "confirmed",
-        amount: 10000,
-        confirmCode: code,
-        isPrimary: true,
-      },
-    ]);
-    addToast("✓ Membership renouvelé pour 30 jours !", "success");
+    const expiry = new Date(Date.now() + 30 * 86400000).toISOString();
+
+    const { data, error } = await supabase
+      .from("users")
+      .update({
+        is_member: true,
+        member_expiry: expiry,
+      })
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      addToast("Erreur pendant le renouvellement.", "error");
+      return;
+    }
+
+    await supabase.from("payments").insert({
+      user_id: user.id,
+      amount: 10000,
+      method: "membership_pass",
+      status: "paid",
+    });
+
+    setUser(makeUserFromDb(data));
+    await loadData();
+    addToast("Membership renouvelé !", "success");
   };
 
   const navItems = user?.isAdmin
@@ -1148,6 +1426,12 @@ export default function App() {
       </header>
 
       <main style={{ maxWidth: 800, margin: "0 auto", padding: "24px 20px 80px" }}>
+        {loading && (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <p style={{ color: "var(--muted)", fontSize: 14 }}>Chargement des données Supabase...</p>
+          </div>
+        )}
+
         {!user && page === "calendar" && (
           <div className="card cyber-corner" style={{ marginBottom: 24, background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(0,245,212,0.08))", borderColor: "rgba(124,58,237,0.3)", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: -30, right: -30, width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,245,212,0.15) 0%, transparent 70%)" }} />
@@ -1173,12 +1457,11 @@ export default function App() {
         {page === "calendar" && <CalendarView user={user} bookings={bookings} onBook={handleBook} onBlock={handleBlock} addToast={addToast} />}
         {page === "membership" && <MembershipPage user={user} onActivate={handleActivateMembership} onRenew={handleRenewMembership} />}
         {page === "profile" && user && !user.isAdmin && <ProfilePage user={user} bookings={bookings} />}
-        {page === "admin" && user?.isAdmin && <AdminDashboard bookings={bookings} onUnblock={handleUnblock} />}
+        {page === "admin" && user?.isAdmin && <AdminDashboard bookings={bookings} payments={payments} onUnblock={handleUnblock} />}
       </main>
 
       {showAuth && <AuthModal mode={authMode} onClose={() => setShowAuth(false)} onLogin={handleLogin} onRegister={handleRegister} />}
       {blockTarget && <BlockModal slot={blockTarget} onClose={() => setBlockTarget(null)} onBlock={confirmBlock} />}
-
       <Toast toasts={toasts} />
 
       {!user && (
