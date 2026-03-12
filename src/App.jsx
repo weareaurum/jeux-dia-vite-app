@@ -90,6 +90,16 @@ const GlobalStyle = () => (
     .btn-purple { background: var(--accent2); color: #fff; }
     .btn-purple:hover { filter: brightness(1.1); box-shadow: var(--glow2); }
     .btn-sm { padding: 8px 16px; font-size: 12px; }
+    .btn-link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+      text-align: left;
+    }
+    .btn-link:hover { text-decoration: underline; }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
 
     .card {
@@ -128,7 +138,7 @@ const GlobalStyle = () => (
       transition: border-color 0.2s, box-shadow 0.2s;
     }
 
-    input:focus, select:focus {
+    input:focus, select:focus, textarea:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(0,245,212,0.1);
     }
@@ -181,10 +191,12 @@ const GlobalStyle = () => (
       border: 1px solid var(--border);
       border-radius: 16px;
       padding: 32px;
-      max-width: 500px;
+      max-width: 560px;
       width: 100%;
       animation: fadeIn 0.3s ease;
       position: relative;
+      max-height: 90vh;
+      overflow-y: auto;
     }
 
     .toast-container {
@@ -531,6 +543,19 @@ function expandBlockedSlotRecord(row) {
   }));
 }
 
+async function writeAdminLog(user, actionType, targetTable, targetId, details = {}) {
+  if (!user?.id) return;
+
+  await supabase.from("admin_activity_logs").insert({
+    admin_user_id: user.id,
+    admin_name: user.name || "Admin",
+    action_type: actionType,
+    target_table: targetTable,
+    target_id: targetId ? String(targetId) : null,
+    details,
+  });
+}
+
 function Logo({ size = 72, clickable = false, onClick }) {
   return (
     <div
@@ -592,6 +617,118 @@ function Toast({ toasts }) {
   );
 }
 
+function ForgotPasswordModal({ onClose, onSend }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit() {
+    if (!email) return;
+    setLoading(true);
+    await onSend(email);
+    setLoading(false);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <h2 className="orbitron" style={{ fontSize: 18, marginBottom: 8, color: "var(--accent)" }}>
+          Mot de passe oublié
+        </h2>
+        <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+          Entrez votre email. Nous vous enverrons un lien pour réinitialiser votre mot de passe.
+        </p>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>EMAIL</label>
+          <input
+            type="email"
+            placeholder="exemple@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+            Annuler
+          </button>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={submit} disabled={!email || loading}>
+            Envoyer →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordModal({ onClose, onSave }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit() {
+    if (!password || password.length < 6) return;
+    if (password !== confirm) return;
+    setLoading(true);
+    await onSave(password);
+    setLoading(false);
+  }
+
+  const mismatch = confirm && password !== confirm;
+
+  return (
+    <div className="modal-overlay" onClick={() => {}}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <h2 className="orbitron" style={{ fontSize: 18, marginBottom: 8, color: "var(--accent)" }}>
+          Nouveau mot de passe
+        </h2>
+        <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+          Choisissez un nouveau mot de passe pour votre compte.
+        </p>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>NOUVEAU MOT DE PASSE</label>
+          <input
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>CONFIRMER</label>
+          <input
+            type="password"
+            placeholder="••••••••"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+          {mismatch && (
+            <p style={{ marginTop: 8, color: "var(--danger)", fontSize: 12 }}>
+              Les mots de passe ne correspondent pas.
+            </p>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+            Fermer
+          </button>
+          <button
+            className="btn btn-primary"
+            style={{ flex: 1 }}
+            onClick={submit}
+            disabled={!password || password.length < 6 || mismatch || loading}
+          >
+            Sauvegarder →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PaymentModal({ booking, onSuccess, onClose, isMember }) {
   const [step, setStep] = useState("method");
   const [method, setMethod] = useState(null);
@@ -602,44 +739,59 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
   const amount = booking.amount;
 
   async function pay() {
-  if (!phone.match(/^\+?[0-9\s]{8,}$/)) return;
+    if (!phone.match(/^\+?[0-9\s]{8,}$/)) return;
 
-  try {
-    setLoading(true);
-    setStep("processing");
+    try {
+      setLoading(true);
 
-    const response = await fetch("/api/create-payment", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        amount,
-        customerName: booking.name || "Client Jeux Dia",
-        customerPhone: phone,
-        description: booking.isMembership
-          ? "Jeux Dia Membership 30 jours"
-          : `Jeux Dia session ${booking.duration || ""} ${booking.time || ""}`,
-        bookingData: booking,
-      }),
-    });
+      const publicKey = import.meta.env.VITE_FEDAPAY_PUBLIC_KEY;
 
-    const data = await response.json();
+      if (!publicKey) {
+        throw new Error("Clé publique FedaPay manquante");
+      }
 
-    if (!response.ok) {
-      throw new Error(data.error || "Payment request failed");
+      if (!window.FedaPay) {
+        throw new Error("FedaPay Checkout.js n'est pas chargé");
+      }
+
+      const widget = window.FedaPay.init({
+        public_key: publicKey,
+        environment: "sandbox",
+        locale: "fr",
+        transaction: {
+          amount,
+          description: booking.isMembership
+            ? "Jeux Dia Membership 30 jours"
+            : `Jeux Dia session ${booking.duration || ""} ${booking.time || ""}`,
+        },
+        customer: {
+          firstname: booking.name ? booking.name.split(" ")[0] : "Client",
+          lastname: booking.name ? booking.name.split(" ").slice(1).join(" ") : "Jeux Dia",
+          phone_number: {
+            number: phone.replace(/\s/g, ""),
+            country: "tg",
+          },
+        },
+        onComplete: function ({ reason }) {
+          if (reason === window.FedaPay.CHECKOUT_COMPLETED) {
+            const code = "JD-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+            setConfirmCode(code);
+            setStep("done");
+          } else {
+            setStep("phone");
+          }
+          setLoading(false);
+        },
+      });
+
+      setStep("processing");
+      widget.open();
+    } catch (error) {
+      alert(error.message || "Erreur de paiement");
+      setLoading(false);
+      setStep("phone");
     }
-
-    const code = "JD-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-    setConfirmCode(code);
-    setStep("done");
-  } catch (error) {
-    alert(error.message || "Erreur de paiement");
-    setStep("phone");
-  } finally {
-    setLoading(false);
   }
-}
 
   if (isMember) {
     return (
@@ -716,7 +868,7 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
               ))}
             </div>
             <p style={{ fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-              Powered by <span style={{ color: "var(--accent)" }}>FedaPay</span> / <span style={{ color: "var(--accent)" }}>PayGate.tg</span>
+              Powered by <span style={{ color: "var(--accent)" }}>FedaPay</span>
             </p>
           </div>
         )}
@@ -823,7 +975,63 @@ function BlockModal({ slot, onClose, onBlock }) {
   );
 }
 
-function AuthModal({ mode, onClose, onLogin, onRegister }) {
+function EditUserModal({ userData, onClose, onSave }) {
+  const [form, setForm] = useState({
+    ...userData,
+    member_expiry: userData?.member_expiry
+      ? new Date(userData.member_expiry).toISOString().slice(0, 16)
+      : "",
+  });
+
+  const update = (key) => (e) =>
+    setForm({
+      ...form,
+      [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
+    });
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2 className="orbitron" style={{ fontSize: 16, marginBottom: 18, color: "var(--accent)" }}>
+          Modifier utilisateur
+        </h2>
+
+        <div style={{ display: "grid", gap: 12 }}>
+          <input value={form.full_name || ""} onChange={update("full_name")} placeholder="Nom complet" />
+          <input value={form.phone || ""} onChange={update("phone")} placeholder="Téléphone" />
+          <input value={form.email || ""} onChange={update("email")} placeholder="Email" />
+          <select value={form.role || "customer"} onChange={update("role")}>
+            <option value="customer">customer</option>
+            <option value="admin">admin</option>
+          </select>
+
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={!!form.is_member} onChange={update("is_member")} style={{ width: 16 }} />
+            Pass membre actif
+          </label>
+
+          <input
+            type="datetime-local"
+            value={form.member_expiry || ""}
+            onChange={update("member_expiry")}
+            placeholder="Expiration membership"
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+            Annuler
+          </button>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => onSave(form)}>
+            Sauvegarder
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthModal({ mode, onClose, onLogin, onRegister, onForgotPassword }) {
   const [tab, setTab] = useState(mode || "login");
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
 
@@ -867,9 +1075,15 @@ function AuthModal({ mode, onClose, onLogin, onRegister }) {
               <input type="email" placeholder="exemple@email.com" value={form.email} onChange={upd("email")} />
             </div>
 
-            <div style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 10 }}>
               <label style={{ color: "var(--muted)", fontSize: 12, display: "block", marginBottom: 6 }}>MOT DE PASSE</label>
               <input type="password" placeholder="••••••••" value={form.password} onChange={upd("password")} />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <button className="btn-link" onClick={onForgotPassword}>
+                Mot de passe oublié ?
+              </button>
             </div>
 
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onLogin(form)}>
@@ -1115,7 +1329,7 @@ function CalendarView({ user, bookings, onBook, onBlock, addToast }) {
       {bookingModal && selectedSlot && (
         <PaymentModal
           isMember={isMember}
-          booking={{ time: selectedSlot, duration: selectedDuration.label, amount: isMember ? 0 : selectedDuration.price }}
+          booking={{ time: selectedSlot, duration: selectedDuration.label, amount: isMember ? 0 : selectedDuration.price, name: user?.name || "Client" }}
           onClose={() => {
             setBookingModal(false);
             setSelectedSlot(null);
@@ -1234,7 +1448,7 @@ function MembershipPage({ user, onActivate, onRenew }) {
 
       {payModal && (
         <PaymentModal
-          booking={{ amount: 10000, isMembership: true }}
+          booking={{ amount: 10000, isMembership: true, name: user?.name || "Client" }}
           onClose={() => setPayModal(false)}
           onSuccess={async () => {
             setPayModal(false);
@@ -1250,7 +1464,10 @@ function MembershipPage({ user, onActivate, onRenew }) {
   );
 }
 
-function AdminDashboard({ bookings, payments, onUnblock }) {
+function AdminDashboard({ bookings, payments, onUnblock, allUsers = [], onEditUser, activityLogs = [] }) {
+  const [tab, setTab] = useState("overview");
+  const [search, setSearch] = useState("");
+
   const todayBookings = bookings.filter(
     (b) =>
       b.dateStr === todayStr &&
@@ -1272,95 +1489,227 @@ function AdminDashboard({ bookings, payments, onUnblock }) {
   const tmoney = Math.round(sessionRevenue * 0.55);
   const flooz = sessionRevenue - tmoney;
 
+  const activeMembers = allUsers.filter((u) => {
+    if (!u.member_expiry || !u.is_member) return false;
+    return new Date(u.member_expiry) > new Date();
+  }).length;
+
+  const expiredMembers = allUsers.filter((u) => {
+    if (!u.member_expiry || !u.is_member) return false;
+    return new Date(u.member_expiry) <= new Date();
+  }).length;
+
+  const filteredBookings = bookings.filter((b) => {
+    const q = search.toLowerCase();
+    return (
+      !q ||
+      (b.name || "").toLowerCase().includes(q) ||
+      (b.phone || "").toLowerCase().includes(q) ||
+      (b.time || "").toLowerCase().includes(q) ||
+      (b.dateStr || "").toLowerCase().includes(q)
+    );
+  });
+
+  const filteredPayments = payments.filter((p) => {
+    const q = search.toLowerCase();
+    return (
+      !q ||
+      String(p.amount || "").includes(q) ||
+      (p.method || "").toLowerCase().includes(q) ||
+      (p.status || "").toLowerCase().includes(q)
+    );
+  });
+
+  const blockedSlots = bookings.filter((b) => b.type === "blocked");
+
   return (
     <div className="fade-in">
-      <div className="grid-3" style={{ marginBottom: 20 }}>
-        {[
-          { label: "Revenus Total", value: formatCFA(totalRevenue), icon: "💰", color: "var(--accent3)" },
-          { label: "Sessions aujourd'hui", value: todayBookings.length, icon: "🎮", color: "var(--accent)" },
-          { label: "Via T-Money / Flooz", value: `${formatCFA(tmoney)} / ${formatCFA(flooz)}`, icon: "📱", color: "#a78bfa" },
-        ].map((s) => (
-          <div key={s.label} className="card stat-card">
-            <div style={{ fontSize: 28, marginBottom: 8 }}>{s.icon}</div>
-            <div className="orbitron" style={{ fontSize: s.value.toString().length > 10 ? 13 : 18, fontWeight: 900, color: s.color, marginBottom: 4 }}>
-              {s.value}
-            </div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>REVENUS PAR SOURCE</h3>
-        {[
-          { label: "T-Money (Togocel)", amount: tmoney, pct: totalRevenue ? Math.round((tmoney / totalRevenue) * 100) : 0, color: "#3b82f6" },
-          { label: "Flooz (Moov Africa)", amount: flooz, pct: totalRevenue ? Math.round((flooz / totalRevenue) * 100) : 0, color: "#f97316" },
-          { label: "Memberships (30j)", amount: membershipRevenue, pct: totalRevenue ? Math.round((membershipRevenue / totalRevenue) * 100) : 0, color: "#a78bfa" },
-        ].map((r) => (
-          <div key={r.label} style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 13 }}>{r.label}</span>
-              <span className="mono" style={{ fontSize: 13, color: r.color }}>{formatCFA(r.amount)}</span>
-            </div>
-            <div className="progress-bar">
-              <div style={{ height: "100%", borderRadius: 3, background: r.color, width: `${Math.max(0, Math.min(100, r.pct))}%`, transition: "width 0.5s ease" }} />
-            </div>
-          </div>
-        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <h2 className="orbitron" style={{ fontSize: 18, color: "var(--accent)" }}>
+            PORTAIL ADMIN
+          </h2>
+          <input
+            placeholder="Rechercher..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ maxWidth: 280 }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+          {[
+            { id: "overview", label: "Vue d'ensemble" },
+            { id: "bookings", label: "Réservations" },
+            { id: "payments", label: "Paiements" },
+            { id: "members", label: "Utilisateurs" },
+            { id: "blocked", label: "Créneaux bloqués" },
+            { id: "logs", label: "Journal admin" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              className={`btn ${tab === item.id ? "btn-primary" : "btn-ghost"} btn-sm`}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="card">
-        <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>
-          RÉSERVATIONS DU JOUR — {todayStr}
-        </h3>
+      {tab === "overview" && (
+        <div className="grid-3" style={{ marginBottom: 20 }}>
+          {[
+            { label: "Revenus Total", value: formatCFA(totalRevenue), icon: "💰", color: "var(--accent3)" },
+            { label: "Sessions aujourd'hui", value: todayBookings.length, icon: "🎮", color: "var(--accent)" },
+            { label: "Membres actifs", value: activeMembers, icon: "🏆", color: "#6ee7b7" },
+            { label: "Membres expirés", value: expiredMembers, icon: "⌛", color: "#f87171" },
+            { label: "T-Money", value: formatCFA(tmoney), icon: "📱", color: "#3b82f6" },
+            { label: "Flooz", value: formatCFA(flooz), icon: "🟠", color: "#f97316" },
+          ].map((s) => (
+            <div key={s.label} className="card stat-card">
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{s.icon}</div>
+              <div className="orbitron" style={{ fontSize: 18, fontWeight: 900, color: s.color, marginBottom: 4 }}>
+                {s.value}
+              </div>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
-        {bookings.filter((b) => b.dateStr === todayStr).length === 0 ? (
-          <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>
-            Aucune réservation pour aujourd'hui
-          </p>
-        ) : (
-          <div>
-            {bookings
-              .filter((b) => b.dateStr === todayStr)
-              .sort((a, b) => a.time.localeCompare(b.time))
+      {tab === "bookings" && (
+        <div className="card">
+          <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>TOUTES LES RÉSERVATIONS</h3>
+          {filteredBookings.filter((b) => b.type !== "buffer").length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>Aucune réservation trouvée.</p>
+          ) : (
+            filteredBookings
+              .filter((b) => b.type !== "buffer")
               .map((b) => (
-                <div key={b.id || b.slotKey} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span className="mono" style={{ fontSize: 14, color: "var(--accent)", minWidth: 50 }}>{b.time}</span>
-                  <div style={{ flex: 1 }}>
+                <div key={b.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{b.name || "—"}</div>
+                    <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                      {b.dateStr} · {b.time} · {b.duration} · {b.phone || "—"}
+                    </div>
+                  </div>
+                  <div>
                     {b.type === "blocked" ? (
-                      <div>
-                        <span style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}>⊘ BLOQUÉ</span>
-                        <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>{b.reason}</span>
-                      </div>
-                    ) : b.type === "buffer" ? (
-                      <span style={{ color: "var(--muted)", fontSize: 12 }}>~ Buffer nettoyage</span>
+                      <span className="tag tag-red">BLOQUÉ</span>
+                    ) : b.type === "member" ? (
+                      <span className="tag tag-green">MEMBRE</span>
                     ) : (
-                      <div>
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</span>
-                        <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>{b.duration}</span>
-                        {b.isPrimary === false && <span style={{ color: "var(--muted)", fontSize: 11, marginLeft: 8 }}>(suite)</span>}
-                      </div>
+                      <span className="tag tag-amber">{formatCFA(b.amount)}</span>
                     )}
                   </div>
-
-                  {b.type === "casual" && b.isPrimary !== false && (
-                    <span className="tag tag-amber">CASUAL · {formatCFA(b.amount)}</span>
-                  )}
-
-                  {b.type === "member" && b.isPrimary !== false && (
-                    <span className="tag tag-green">MEMBRE · 0 CFA</span>
-                  )}
-
-                  {b.type === "blocked" && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>
-                      Débloquer
-                    </button>
-                  )}
                 </div>
-              ))}
-          </div>
-        )}
-      </div>
+              ))
+          )}
+        </div>
+      )}
+
+      {tab === "payments" && (
+        <div className="card">
+          <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>TOUS LES PAIEMENTS</h3>
+          {filteredPayments.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>Aucun paiement trouvé.</p>
+          ) : (
+            filteredPayments.map((p) => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{formatCFA(p.amount)}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 12 }}>{p.method || "—"} · {p.status || "—"}</div>
+                </div>
+                <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                  {p.created_at ? new Date(p.created_at).toLocaleString("fr-FR") : ""}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === "members" && (
+        <div className="card">
+          <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>UTILISATEURS</h3>
+          {allUsers.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>Aucun utilisateur trouvé.</p>
+          ) : (
+            allUsers.map((u) => {
+              const active = u.is_member && u.member_expiry && new Date(u.member_expiry) > new Date();
+              const expired = u.is_member && u.member_expiry && new Date(u.member_expiry) <= new Date();
+
+              return (
+                <div key={u.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{u.full_name || "—"}</div>
+                    <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                      {u.phone || "—"} · {u.email || "—"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {u.role === "admin" ? (
+                      <span className="tag tag-purple">ADMIN</span>
+                    ) : active ? (
+                      <span className="tag tag-green">MEMBRE ACTIF</span>
+                    ) : expired ? (
+                      <span className="tag tag-red">MEMBRE EXPIRÉ</span>
+                    ) : (
+                      <span className="tag tag-amber">CLIENT</span>
+                    )}
+                    <button className="btn btn-ghost btn-sm" onClick={() => onEditUser(u)}>
+                      Modifier
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {tab === "blocked" && (
+        <div className="card">
+          <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>CRÉNEAUX BLOQUÉS</h3>
+          {blockedSlots.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>Aucun créneau bloqué.</p>
+          ) : (
+            blockedSlots.map((b) => (
+              <div key={b.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{b.dateStr} · {b.time}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 12 }}>{b.reason || "Sans raison"}</div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>
+                  Débloquer
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === "logs" && (
+        <div className="card">
+          <h3 className="orbitron" style={{ fontSize: 13, marginBottom: 16, color: "var(--accent)" }}>JOURNAL ADMIN</h3>
+          {activityLogs.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>Aucune activité enregistrée.</p>
+          ) : (
+            activityLogs.map((log) => (
+              <div key={log.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 600 }}>{log.admin_name || "Admin"} · {log.action_type}</div>
+                <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                  {log.target_table || "—"} · {log.target_id || "—"} · {log.created_at ? new Date(log.created_at).toLocaleString("fr-FR") : ""}
+                </div>
+                <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", fontSize: 11, color: "var(--muted)" }}>
+                  {JSON.stringify(log.details, null, 2)}
+                </pre>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1431,11 +1780,16 @@ export default function App() {
   const [page, setPage] = useState("calendar");
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [bookings, setBookings] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [blockTarget, setBlockTarget] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const addToast = useCallback((message, type = "success") => {
@@ -1447,13 +1801,15 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    const [bookingsRes, blockedRes, paymentsRes] = await Promise.all([
+    const [bookingsRes, blockedRes, paymentsRes, usersRes, logsRes] = await Promise.all([
       supabase.from("bookings").select("*").order("start_time", { ascending: true }),
       supabase.from("blocked_slots").select("*").order("start_time", { ascending: true }),
       supabase.from("payments").select("*").order("created_at", { ascending: false }),
+      supabase.from("users").select("*").order("created_at", { ascending: false }),
+      supabase.from("admin_activity_logs").select("*").order("created_at", { ascending: false }),
     ]);
 
-    if (bookingsRes.error || blockedRes.error || paymentsRes.error) {
+    if (bookingsRes.error || blockedRes.error || paymentsRes.error || usersRes.error || logsRes.error) {
       addToast("Erreur de chargement depuis Supabase.", "error");
       setLoading(false);
       return;
@@ -1470,6 +1826,8 @@ export default function App() {
 
     setBookings(combined);
     setPayments(paymentsRes.data || []);
+    setAllUsers(usersRes.data || []);
+    setActivityLogs(logsRes.data || []);
     setLoading(false);
   }, [addToast]);
 
@@ -1497,8 +1855,14 @@ export default function App() {
     loadData();
     fetchCurrentProfile();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      fetchCurrentProfile();
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
+      await fetchCurrentProfile();
+
+      if (event === "PASSWORD_RECOVERY") {
+        setShowAuth(false);
+        setShowForgotPassword(false);
+        setShowResetPassword(true);
+      }
     });
 
     return () => {
@@ -1554,12 +1918,12 @@ export default function App() {
     }
 
     const { data: authData, error: authError } = await supabase.auth.signUp({
-  email: form.email,
-  password: form.password,
-  options: {
-    emailRedirectTo: "https://jeux-dia-vite-app.vercel.app",
-  },
-});
+      email: form.email,
+      password: form.password,
+      options: {
+        emailRedirectTo: "https://jeux-dia-vite-app.vercel.app",
+      },
+    });
 
     if (authError) {
       addToast(authError.message, "error");
@@ -1596,6 +1960,34 @@ export default function App() {
     setUser(u);
     setShowAuth(false);
     addToast("Compte sécurisé créé avec succès !", "success");
+  };
+
+  const handleForgotPassword = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: "https://jeux-dia-vite-app.vercel.app",
+    });
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    setShowForgotPassword(false);
+    addToast("Email de réinitialisation envoyé.", "success");
+  };
+
+  const handleRecoveredPasswordUpdate = async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    setShowResetPassword(false);
+    addToast("Mot de passe mis à jour avec succès.", "success");
   };
 
   const handleBook = async (booking) => {
@@ -1669,17 +2061,27 @@ export default function App() {
     const start = combineDateAndTime(blockTarget.dateStr, blockTarget.time);
     const end = addMinutes(start, 20);
 
-    const { error } = await supabase.from("blocked_slots").insert({
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      reason,
-    });
+    const { data, error } = await supabase
+      .from("blocked_slots")
+      .insert({
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        reason,
+      })
+      .select()
+      .single();
 
     if (error) {
       addToast("Erreur pendant le blocage du créneau.", "error");
       setBlockTarget(null);
       return;
     }
+
+    await writeAdminLog(user, "BLOCK_SLOT", "blocked_slots", data.id, {
+      dateStr: blockTarget.dateStr,
+      time: blockTarget.time,
+      reason,
+    });
 
     setBlockTarget(null);
     await loadData();
@@ -1702,8 +2104,46 @@ export default function App() {
       return;
     }
 
+    await writeAdminLog(user, "UNBLOCK_SLOT", "blocked_slots", booking.sourceId, {
+      dateStr: booking.dateStr,
+      time: booking.time,
+      reason: booking.reason || null,
+    });
+
     await loadData();
     addToast("Créneau débloqué", "success");
+  };
+
+  const handleSaveUserEdit = async (updatedUser) => {
+    if (!updatedUser?.id) return;
+
+    const oldUser = allUsers.find((u) => u.id === updatedUser.id);
+
+    const { error } = await supabase
+      .from("users")
+      .update({
+        full_name: updatedUser.full_name,
+        phone: updatedUser.phone,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        is_member: updatedUser.is_member,
+        member_expiry: updatedUser.member_expiry || null,
+      })
+      .eq("id", updatedUser.id);
+
+    if (error) {
+      addToast("Erreur lors de la mise à jour de l'utilisateur.", "error");
+      return;
+    }
+
+    await writeAdminLog(user, "EDIT_USER", "users", updatedUser.id, {
+      before: oldUser,
+      after: updatedUser,
+    });
+
+    setEditingUser(null);
+    await loadData();
+    addToast("Utilisateur mis à jour.", "success");
   };
 
   const handleActivateMembership = async () => {
@@ -1867,11 +2307,55 @@ export default function App() {
         {page === "calendar" && <CalendarView user={user} bookings={bookings} onBook={handleBook} onBlock={handleBlock} addToast={addToast} />}
         {page === "membership" && <MembershipPage user={user} onActivate={handleActivateMembership} onRenew={handleRenewMembership} />}
         {page === "profile" && user && !user.isAdmin && <ProfilePage user={user} bookings={bookings} />}
-        {page === "admin" && user?.isAdmin && <AdminDashboard bookings={bookings} payments={payments} onUnblock={handleUnblock} />}
+        {page === "admin" && user?.isAdmin && (
+          <AdminDashboard
+            bookings={bookings}
+            payments={payments}
+            allUsers={allUsers}
+            activityLogs={activityLogs}
+            onUnblock={handleUnblock}
+            onEditUser={setEditingUser}
+          />
+        )}
       </main>
 
-      {showAuth && <AuthModal mode={authMode} onClose={() => setShowAuth(false)} onLogin={handleLogin} onRegister={handleRegister} />}
+      {showAuth && (
+        <AuthModal
+          mode={authMode}
+          onClose={() => setShowAuth(false)}
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          onForgotPassword={() => {
+            setShowAuth(false);
+            setShowForgotPassword(true);
+          }}
+        />
+      )}
+
+      {showForgotPassword && (
+        <ForgotPasswordModal
+          onClose={() => setShowForgotPassword(false)}
+          onSend={handleForgotPassword}
+        />
+      )}
+
+      {showResetPassword && (
+        <ResetPasswordModal
+          onClose={() => setShowResetPassword(false)}
+          onSave={handleRecoveredPasswordUpdate}
+        />
+      )}
+
       {blockTarget && <BlockModal slot={blockTarget} onClose={() => setBlockTarget(null)} onBlock={confirmBlock} />}
+
+      {editingUser && (
+        <EditUserModal
+          userData={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSave={handleSaveUserEdit}
+        />
+      )}
+
       <Toast toasts={toasts} />
 
       {!user && (
