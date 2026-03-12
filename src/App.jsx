@@ -1554,9 +1554,12 @@ export default function App() {
     }
 
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-    });
+  email: form.email,
+  password: form.password,
+  options: {
+    emailRedirectTo: "https://jeux-dia-vite-app.vercel.app",
+  },
+});
 
     if (authError) {
       addToast(authError.message, "error");
