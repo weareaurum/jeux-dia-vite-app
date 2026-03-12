@@ -1854,15 +1854,19 @@ export default function App() {
     return inserted;
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (currentUser = null) => {
     setLoading(true);
+
+    const isAdmin = currentUser?.isAdmin;
 
     const [bookingsRes, blockedRes, paymentsRes, usersRes, logsRes] = await Promise.all([
       supabase.from("bookings").select("*").order("start_time", { ascending: true }),
       supabase.from("blocked_slots").select("*").order("start_time", { ascending: true }),
       supabase.from("payments").select("*").order("created_at", { ascending: false }),
       supabase.from("users").select("*").order("created_at", { ascending: false }),
-      supabase.from("admin_activity_logs").select("*").order("created_at", { ascending: false }),
+      isAdmin
+        ? supabase.from("admin_activity_logs").select("*").order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (bookingsRes.error || blockedRes.error || paymentsRes.error || usersRes.error || logsRes.error) {
@@ -1887,44 +1891,71 @@ export default function App() {
     setLoading(false);
   }, [addToast]);
 
-  const fetchCurrentProfile = useCallback(async () => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const authUser = sessionData?.session?.user;
+  const fetchCurrentProfile = useCallback(async (authUser = null) => {
+    let currentAuthUser = authUser;
 
-    if (!authUser) {
-      setUser(null);
-      return;
+    if (!currentAuthUser) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      currentAuthUser = sessionData?.session?.user || null;
     }
 
-    const ensured = await ensureUserRow(authUser);
+    if (!currentAuthUser) {
+      setUser(null);
+      return null;
+    }
+
+    const ensured = await ensureUserRow(currentAuthUser);
+
     if (ensured) {
-      setUser(makeUserFromDb(ensured));
-      return;
+      const built = makeUserFromDb(ensured);
+      setUser(built);
+      return built;
     }
 
     const { data, error } = await supabase
       .from("users")
       .select("*")
-      .eq("id", authUser.id)
+      .eq("id", currentAuthUser.id)
       .maybeSingle();
 
     if (!error && data) {
-      setUser(makeUserFromDb(data));
+      const built = makeUserFromDb(data);
+      setUser(built);
+      return built;
     }
+
+    return null;
   }, [ensureUserRow]);
 
   useEffect(() => {
-    loadData();
-    fetchCurrentProfile();
+    async function boot() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUser = sessionData?.session?.user || null;
+
+      let currentUser = null;
+      if (authUser) {
+        currentUser = await fetchCurrentProfile(authUser);
+      } else {
+        setUser(null);
+      }
+
+      await loadData(currentUser);
+    }
+
+    boot();
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       const authUser = session?.user || null;
 
+      let currentUser = null;
+
       if (authUser) {
-        await ensureUserRow(authUser);
+        currentUser = await fetchCurrentProfile(authUser);
+      } else {
+        setUser(null);
       }
 
-      await fetchCurrentProfile();
+      await loadData(currentUser);
 
       if (event === "PASSWORD_RECOVERY") {
         setShowAuth(false);
@@ -1934,14 +1965,13 @@ export default function App() {
 
       if (event === "SIGNED_IN" && authUser) {
         setShowAuth(false);
-        await loadData();
       }
     });
 
     return () => {
       listener?.subscription?.unsubscribe?.();
     };
-  }, [loadData, fetchCurrentProfile, ensureUserRow]);
+  }, [loadData, fetchCurrentProfile]);
 
   const handleGoogleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -2116,7 +2146,7 @@ export default function App() {
       });
     }
 
-    await loadData();
+    await loadData(user);
     addToast(`Session réservée pour ${booking.time} !`, "success");
   };
 
@@ -2166,7 +2196,7 @@ export default function App() {
     });
 
     setBlockTarget(null);
-    await loadData();
+    await loadData(user);
     addToast("Créneau bloqué", "info");
   };
 
@@ -2192,7 +2222,7 @@ export default function App() {
       reason: booking.reason || null,
     });
 
-    await loadData();
+    await loadData(user);
     addToast("Créneau débloqué", "success");
   };
 
@@ -2224,7 +2254,7 @@ export default function App() {
     });
 
     setEditingUser(null);
-    await loadData();
+    await loadData(user);
     addToast("Utilisateur mis à jour.", "success");
   };
 
@@ -2259,7 +2289,7 @@ export default function App() {
     });
 
     setUser(makeUserFromDb(data));
-    await loadData();
+    await loadData(makeUserFromDb(data));
     addToast("Membership activé !", "success");
   };
 
@@ -2294,7 +2324,7 @@ export default function App() {
     });
 
     setUser(makeUserFromDb(data));
-    await loadData();
+    await loadData(makeUserFromDb(data));
     addToast("Membership renouvelé !", "success");
   };
 
