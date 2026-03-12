@@ -602,15 +602,44 @@ function PaymentModal({ booking, onSuccess, onClose, isMember }) {
   const amount = booking.amount;
 
   async function pay() {
-    if (!phone.match(/^\+?[0-9\s]{8,}$/)) return;
+  if (!phone.match(/^\+?[0-9\s]{8,}$/)) return;
+
+  try {
     setLoading(true);
     setStep("processing");
-    await new Promise((r) => setTimeout(r, 1800));
+
+    const response = await fetch("/api/create-payment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        amount,
+        customerName: booking.name || "Client Jeux Dia",
+        customerPhone: phone,
+        description: booking.isMembership
+          ? "Jeux Dia Membership 30 jours"
+          : `Jeux Dia session ${booking.duration || ""} ${booking.time || ""}`,
+        bookingData: booking,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Payment request failed");
+    }
+
     const code = "JD-" + Math.random().toString(36).substring(2, 8).toUpperCase();
     setConfirmCode(code);
     setStep("done");
+  } catch (error) {
+    alert(error.message || "Erreur de paiement");
+    setStep("phone");
+  } finally {
     setLoading(false);
   }
+}
 
   if (isMember) {
     return (
