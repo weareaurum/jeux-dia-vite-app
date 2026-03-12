@@ -1031,7 +1031,7 @@ function EditUserModal({ userData, onClose, onSave }) {
   );
 }
 
-function AuthModal({ mode, onClose, onLogin, onRegister, onForgotPassword }) {
+function AuthModal({ mode, onClose, onLogin, onRegister, onForgotPassword, onGoogleLogin }) {
   const [tab, setTab] = useState(mode || "login");
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
 
@@ -1089,6 +1089,10 @@ function AuthModal({ mode, onClose, onLogin, onRegister, onForgotPassword }) {
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onLogin(form)}>
               Se connecter →
             </button>
+
+            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 12 }} onClick={onGoogleLogin}>
+              Continuer avec Google
+            </button>
           </div>
         ) : (
           <div className="fade-in">
@@ -1114,6 +1118,10 @@ function AuthModal({ mode, onClose, onLogin, onRegister, onForgotPassword }) {
 
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => onRegister(form)}>
               Créer mon compte →
+            </button>
+
+            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 12 }} onClick={onGoogleLogin}>
+              Continuer avec Google
             </button>
           </div>
         )}
@@ -1798,6 +1806,54 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
+  const ensureUserRow = useCallback(async (authUser) => {
+    if (!authUser?.id) return null;
+
+    const { data: existing, error: selectError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    if (!selectError && existing) {
+      return existing;
+    }
+
+    const fullName =
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name ||
+      authUser.user_metadata?.display_name ||
+      authUser.email?.split("@")[0] ||
+      "Utilisateur";
+
+    const phone =
+      authUser.user_metadata?.phone ||
+      authUser.phone ||
+      "";
+
+    const email = authUser.email || "";
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("users")
+      .insert({
+        id: authUser.id,
+        full_name: fullName,
+        phone,
+        email,
+        role: "customer",
+        is_member: false,
+        member_expiry: null,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return null;
+    }
+
+    return inserted;
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
 
@@ -1840,6 +1896,12 @@ export default function App() {
       return;
     }
 
+    const ensured = await ensureUserRow(authUser);
+    if (ensured) {
+      setUser(makeUserFromDb(ensured));
+      return;
+    }
+
     const { data, error } = await supabase
       .from("users")
       .select("*")
@@ -1849,13 +1911,19 @@ export default function App() {
     if (!error && data) {
       setUser(makeUserFromDb(data));
     }
-  }, []);
+  }, [ensureUserRow]);
 
   useEffect(() => {
     loadData();
     fetchCurrentProfile();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const authUser = session?.user || null;
+
+      if (authUser) {
+        await ensureUserRow(authUser);
+      }
+
       await fetchCurrentProfile();
 
       if (event === "PASSWORD_RECOVERY") {
@@ -1863,12 +1931,30 @@ export default function App() {
         setShowForgotPassword(false);
         setShowResetPassword(true);
       }
+
+      if (event === "SIGNED_IN" && authUser) {
+        setShowAuth(false);
+        await loadData();
+      }
     });
 
     return () => {
       listener?.subscription?.unsubscribe?.();
     };
-  }, [loadData, fetchCurrentProfile]);
+  }, [loadData, fetchCurrentProfile, ensureUserRow]);
+
+  const handleGoogleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: "https://jeux-dia-vite-app.vercel.app",
+      },
+    });
+
+    if (error) {
+      addToast(error.message, "error");
+    }
+  };
 
   const handleLogin = async (form) => {
     if (!form.email || !form.password) {
@@ -1893,18 +1979,14 @@ export default function App() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    const ensured = await ensureUserRow(authUser);
 
-    if (error || !data) {
+    if (!ensured) {
       addToast("Profil utilisateur introuvable.", "error");
       return;
     }
 
-    const u = makeUserFromDb(data);
+    const u = makeUserFromDb(ensured);
     setUser(u);
     setShowAuth(false);
     setPage(u.isAdmin ? "admin" : "calendar");
@@ -2296,7 +2378,7 @@ export default function App() {
               <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 20 }}>
                 Réservez votre session VR en ligne et payez par T-Money ou Flooz.
               </p>
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button className="btn btn-primary" onClick={() => { setAuthMode("register"); setShowAuth(true); }}>Créer un compte →</button>
                 <button className="btn btn-ghost" onClick={() => { setAuthMode("login"); setShowAuth(true); }}>Se connecter</button>
               </div>
@@ -2329,6 +2411,7 @@ export default function App() {
             setShowAuth(false);
             setShowForgotPassword(true);
           }}
+          onGoogleLogin={handleGoogleLogin}
         />
       )}
 
@@ -2359,7 +2442,7 @@ export default function App() {
       <Toast toasts={toasts} />
 
       {!user && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: "rgba(13,18,32,0.95)", borderTop: "1px solid var(--border)", backdropFilter: "blur(12px)", display: "flex", gap: 12, justifyContent: "center", zIndex: 50 }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: "rgba(13,18,32,0.95)", borderTop: "1px solid var(--border)", backdropFilter: "blur(12px)", display: "flex", gap: 12, justifyContent: "center", zIndex: 50, flexWrap: "wrap" }}>
           <button className="btn btn-ghost" style={{ flex: 1, maxWidth: 200 }} onClick={() => { setAuthMode("login"); setShowAuth(true); }}>Se connecter</button>
           <button className="btn btn-primary" style={{ flex: 1, maxWidth: 200 }} onClick={() => { setAuthMode("register"); setShowAuth(true); }}>Créer un compte</button>
         </div>
