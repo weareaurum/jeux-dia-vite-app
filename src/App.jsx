@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 import logoImg from "./assets/jdlo.png";
 
@@ -16,6 +16,36 @@ const DURATIONS = [
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("ERROR BOUNDARY CAUGHT:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, color: "white", background: "#050810", minHeight: "100vh" }}>
+          <h2>Une erreur est survenue.</h2>
+          <pre style={{ whiteSpace: "pre-wrap" }}>
+            {this.state.error?.message || "Erreur inconnue"}
+          </pre>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function GlobalStyle() {
   return (
@@ -55,7 +85,7 @@ function GlobalStyle() {
       }
 
       .container {
-        width: min(100%, 900px);
+        width: min(100%, 980px);
         margin: 0 auto;
         padding: 0 20px;
       }
@@ -185,8 +215,18 @@ function GlobalStyle() {
         gap: 14px;
       }
 
+      .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      @media (max-width: 900px) {
+        .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      }
+
       @media (max-width: 700px) {
-        .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
       }
 
       input, select {
@@ -375,14 +415,37 @@ function hhmm(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+function getStartOfWeek(dateInput) {
+  const date = new Date(dateInput);
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + diffToMonday);
+  return date;
+}
+
 function makeUser(row) {
+  if (!row) {
+    return {
+      id: "",
+      name: "Utilisateur",
+      email: "",
+      phone: "",
+      role: "customer",
+      isAdmin: false,
+      memberStatus: null,
+      daysLeft: 0,
+      memberExpiry: null,
+    };
+  }
+
   const now = new Date();
   const expiry = row?.member_expiry ? new Date(row.member_expiry) : null;
   const active = !!row?.is_member && expiry && expiry > now;
   const expired = !!row?.is_member && expiry && expiry <= now;
 
   return {
-    id: row.id,
+    id: row.id || "",
     name: row.full_name || "Utilisateur",
     email: row.email || "",
     phone: row.phone || "",
@@ -497,10 +560,10 @@ function AuthModal({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-        <button className={`btn ${tab === "login" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("login")}>
+        <button type="button" className={`btn ${tab === "login" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("login")}>
           Connexion
         </button>
-        <button className={`btn ${tab === "register" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("register")}>
+        <button type="button" className={`btn ${tab === "register" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("register")}>
           Inscription
         </button>
       </div>
@@ -524,6 +587,7 @@ function AuthModal({
 
           <div style={{ marginTop: 10, marginBottom: 16 }}>
             <button
+              type="button"
               className="btn"
               style={{ background: "none", color: "var(--accent)", padding: 0 }}
               onClick={onForgotPassword}
@@ -533,10 +597,10 @@ function AuthModal({
           </div>
 
           <div style={{ display: "grid", gap: 10 }}>
-            <button className="btn btn-primary" onClick={() => onLogin(form)}>
+            <button type="button" className="btn btn-primary" onClick={() => onLogin(form)}>
               Se connecter →
             </button>
-            <button className="btn btn-ghost" onClick={onGoogleLogin}>
+            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin}>
               Continuer avec Google
             </button>
           </div>
@@ -569,10 +633,10 @@ function AuthModal({
           </div>
 
           <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={() => onRegister(form)}>
+            <button type="button" className="btn btn-primary" onClick={() => onRegister(form)}>
               Créer mon compte →
             </button>
-            <button className="btn btn-ghost" onClick={onGoogleLogin}>
+            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin}>
               Continuer avec Google
             </button>
           </div>
@@ -596,10 +660,10 @@ function ForgotPasswordModal({ onClose, onSubmit }) {
         onChange={(e) => setEmail(e.target.value)}
       />
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
           Annuler
         </button>
-        <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => onSubmit(email)}>
+        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onSubmit(email)}>
           Envoyer
         </button>
       </div>
@@ -632,10 +696,11 @@ function ResetPasswordModal({ onClose, onSubmit }) {
         <p style={{ color: "#fca5a5" }}>Les mots de passe ne correspondent pas.</p>
       )}
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
           Fermer
         </button>
         <button
+          type="button"
           className="btn btn-primary"
           style={{ flex: 1 }}
           onClick={() => onSubmit(password)}
@@ -671,10 +736,10 @@ function BookModal({ booking, isMember, onClose, onConfirm }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
           Annuler
         </button>
-        <button className="btn btn-primary" style={{ flex: 1 }} onClick={onConfirm}>
+        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={onConfirm}>
           Confirmer
         </button>
       </div>
@@ -713,10 +778,10 @@ function EditUserModal({ userData, onClose, onSave }) {
         </label>
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
           Annuler
         </button>
-        <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => onSave(form)}>
+        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onSave(form)}>
           Sauvegarder
         </button>
       </div>
@@ -780,13 +845,13 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, addToast }) 
     <>
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v - 1)}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v - 1)}>
             ← Semaine précédente
           </button>
           <div className="muted">
             {MONTHS[weekDates[0].getMonth()]} {weekDates[0].getFullYear()}
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v + 1)}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v + 1)}>
             Semaine suivante →
           </button>
         </div>
@@ -885,7 +950,7 @@ function MembershipPage({ user, onActivate }) {
           <>
             <p style={{ fontWeight: 700, color: "#fcd34d" }}>10,000 CFA</p>
             {user ? (
-              <button className="btn btn-purple" onClick={onActivate}>
+              <button type="button" className="btn btn-purple" onClick={onActivate}>
                 Activer le Pass Membre
               </button>
             ) : (
@@ -948,9 +1013,48 @@ function ProfilePage({ user, bookings }) {
 }
 
 function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
-  const today = toDateStr(new Date());
-  const todayBookings = bookings.filter((b) => b.dateStr === today && b.isPrimary && (b.type === "booked" || b.type === "member"));
+  const today = new Date();
+  const todayStr = toDateStr(today);
+  const startOfWeek = getStartOfWeek(today);
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const primaryBookings = bookings.filter(
+    (b) => b.isPrimary && (b.type === "booked" || b.type === "member")
+  );
+
+  const todayBookings = primaryBookings.filter((b) => b.dateStr === todayStr);
   const blocked = bookings.filter((b) => b.type === "blocked" && b.isPrimary);
+
+  const paidBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0);
+  const memberBookings = primaryBookings.filter((b) => b.type === "member");
+
+  const totalSales = paidBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
+  const todaySales = paidBookings
+    .filter((b) => b.dateStr === todayStr)
+    .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
+  const weeklySales = paidBookings
+    .filter((b) => {
+      const d = new Date(`${b.dateStr}T${b.time}:00`);
+      return d >= startOfWeek;
+    })
+    .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
+  const monthlySales = paidBookings
+    .filter((b) => {
+      const d = new Date(`${b.dateStr}T${b.time}:00`);
+      return d >= startOfMonth;
+    })
+    .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
+  const recentSales = [...paidBookings]
+    .sort((a, b) => {
+      const aDate = new Date(`${a.dateStr}T${a.time}:00`).getTime();
+      const bDate = new Date(`${b.dateStr}T${b.time}:00`).getTime();
+      return bDate - aDate;
+    })
+    .slice(0, 10);
 
   return (
     <>
@@ -969,6 +1073,65 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
         </div>
       </div>
 
+      <div className="grid-4">
+        <div className="card">
+          <div className="muted">Ventes totales</div>
+          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
+            {formatCFA(totalSales)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">Ventes du jour</div>
+          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
+            {formatCFA(todaySales)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">Ventes semaine</div>
+          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
+            {formatCFA(weeklySales)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">Ventes mois</div>
+          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
+            {formatCFA(monthlySales)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid-2">
+        <div className="card">
+          <div className="muted">Réservations payées</div>
+          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>
+            {paidBookings.length}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">Sessions membres</div>
+          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>
+            {memberBookings.length}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <strong>Rapport des ventes récentes</strong>
+        {recentSales.length === 0 ? (
+          <p className="muted">Aucune vente enregistrée.</p>
+        ) : (
+          recentSales.map((sale) => (
+            <div key={sale.id} className="list-row">
+              <div>
+                <div>{sale.name || "Client"} — {sale.dateStr} à {sale.time}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{sale.durationLabel}</div>
+              </div>
+              <div style={{ fontWeight: 700 }}>{formatCFA(sale.amount)}</div>
+            </div>
+          ))
+        )}
+      </div>
+
       <div className="card">
         <strong>Utilisateurs</strong>
         {users.map((u) => (
@@ -981,7 +1144,7 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
               <span className={`tag ${u.role === "admin" ? "tag-purple" : u.is_member ? "tag-green" : "tag-amber"}`}>
                 {u.role === "admin" ? "ADMIN" : u.is_member ? "MEMBRE" : "CLIENT"}
               </span>
-              <button className="btn btn-ghost btn-sm" onClick={() => onEditUser(u)}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditUser(u)}>
                 Modifier
               </button>
             </div>
@@ -1000,7 +1163,7 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
                 <div>{b.dateStr} à {b.time}</div>
                 <div className="muted" style={{ fontSize: 12 }}>{b.reason || "Bloqué"}</div>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onUnblock(b)}>
                 Débloquer
               </button>
             </div>
@@ -1044,6 +1207,15 @@ export default function App() {
   const [editUser, setEditUser] = useState(null);
   const [toasts, setToasts] = useState([]);
 
+  const resetUiState = useCallback(() => {
+    setAuthModal(false);
+    setForgotModal(false);
+    setResetModal(false);
+    setBookingDraft(null);
+    setBlockDraft(null);
+    setEditUser(null);
+  }, []);
+
   const addToast = useCallback((message, type = "success") => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -1053,97 +1225,122 @@ export default function App() {
   }, []);
 
   const loadData = useCallback(async (currentUser = null) => {
-    const { data: bookingsData, error: bookingsError } = await supabase
-      .from("bookings")
-      .select("*")
-      .order("start_time", { ascending: true });
+    try {
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from("bookings")
+        .select("*")
+        .order("start_time", { ascending: true });
 
-    const { data: blockedData, error: blockedError } = await supabase
-      .from("blocked_slots")
-      .select("*")
-      .order("start_time", { ascending: true });
+      const { data: blockedData, error: blockedError } = await supabase
+        .from("blocked_slots")
+        .select("*")
+        .order("start_time", { ascending: true });
 
-    if (bookingsError || blockedError) {
-      const realError =
-  bookingsError?.message ||
-  blockedError?.message ||
-  "Erreur Supabase";
+      if (bookingsError || blockedError) {
+        const realError =
+          bookingsError?.message ||
+          blockedError?.message ||
+          "Erreur Supabase";
 
-console.error("LOAD DATA ERROR", {
-  bookingsError,
-  blockedError,
-  currentUser,
-});
+        console.error("LOAD DATA ERROR", {
+          bookingsError,
+          blockedError,
+          currentUser,
+        });
 
-addToast(realError, "error");
-      return;
-    }
+        addToast(realError, "error");
+        return;
+      }
 
-    const bookingItems = (bookingsData || []).flatMap(expandBookingRow);
-    const blockedItems = (blockedData || []).flatMap(expandBlockedRow);
-    setBookings([...bookingItems, ...blockedItems]);
+      const bookingItems = (bookingsData || []).flatMap(expandBookingRow);
+      const blockedItems = (blockedData || []).flatMap(expandBlockedRow);
+      setBookings([...bookingItems, ...blockedItems]);
 
-    if (currentUser?.isAdmin) {
-      const { data: usersData } = await supabase.from("users").select("*").order("created_at", { ascending: false });
-      const { data: logsData } = await supabase.from("admin_activity_logs").select("*").order("created_at", { ascending: false });
-      setRawUsers(usersData || []);
-      setLogs(logsData || []);
-    } else {
-      setRawUsers([]);
-      setLogs([]);
+      if (currentUser?.isAdmin) {
+        const { data: usersData } = await supabase.from("users").select("*").order("created_at", { ascending: false });
+        const { data: logsData } = await supabase.from("admin_activity_logs").select("*").order("created_at", { ascending: false });
+        setRawUsers(usersData || []);
+        setLogs(logsData || []);
+      } else {
+        setRawUsers([]);
+        setLogs([]);
+      }
+    } catch (err) {
+      console.error("LOAD DATA CRASH", err);
+      addToast(err?.message || "Erreur chargement données.", "error");
     }
   }, [addToast]);
 
   const ensureUserProfile = useCallback(async (authUser) => {
-    if (!authUser?.id) return null;
+    try {
+      if (!authUser?.id) return null;
 
-    const { data: existing, error: existingError } = await supabase
-  .from("users")
-  .select("*")
-  .eq("id", authUser.id)
-  .maybeSingle();
+      const { data: existing, error: existingError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", authUser.id)
+        .maybeSingle();
 
-if (existingError) {
-  console.error("ENSURE USER PROFILE READ ERROR", existingError);
-}
+      if (existingError) {
+        console.error("ENSURE USER PROFILE READ ERROR", existingError);
+        return null;
+      }
 
-    if (existing) return existing;
+      if (existing) return existing;
 
-    const { data: inserted, error: insertedError } = await supabase
-  .from("users")
-  .insert({
-    id: authUser.id,
-    full_name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "Utilisateur",
-    email: authUser.email || "",
-    phone: authUser.user_metadata?.phone || "",
-    role: "customer",
-    is_member: false,
-  })
-  .select()
-  .single();
-
-if (insertedError) {
-  console.error("ENSURE USER PROFILE INSERT ERROR", insertedError);
-}
-
-    return inserted || null;
+      return {
+        id: authUser.id,
+        full_name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "Utilisateur",
+        email: authUser.email || "",
+        phone: authUser.user_metadata?.phone || "",
+        role: "customer",
+        is_member: false,
+        member_expiry: null,
+      };
+    } catch (err) {
+      console.error("ENSURE USER PROFILE CRASH", err);
+      return null;
+    }
   }, []);
 
   const loadCurrentUser = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    const authUser = data?.session?.user;
+    try {
+      const { data, error } = await supabase.auth.getSession();
 
-    if (!authUser) {
-      setUser(null);
-      await loadData(null);
-      return;
-    }
+      if (error) {
+        console.error("GET SESSION ERROR", error);
+        setUser(null);
+        await loadData(null);
+        return;
+      }
 
-    const row = await ensureUserProfile(authUser);
-    if (row) {
-      const built = makeUser(row);
+      const authUser = data?.session?.user;
+
+      if (!authUser) {
+        setUser(null);
+        await loadData(null);
+        return;
+      }
+
+      const row = await ensureUserProfile(authUser);
+
+      const built = makeUser(
+        row || {
+          id: authUser.id,
+          full_name: authUser.user_metadata?.full_name || "Utilisateur",
+          email: authUser.email || "",
+          phone: authUser.user_metadata?.phone || "",
+          role: "customer",
+          is_member: false,
+          member_expiry: null,
+        }
+      );
+
       setUser(built);
       await loadData(built);
+    } catch (err) {
+      console.error("LOAD CURRENT USER CRASH", err);
+      setUser(null);
     }
   }, [ensureUserProfile, loadData]);
 
@@ -1151,9 +1348,13 @@ if (insertedError) {
     loadCurrentUser();
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
-      await loadCurrentUser();
-      if (event === "PASSWORD_RECOVERY") {
-        setResetModal(true);
+      try {
+        await loadCurrentUser();
+        if (event === "PASSWORD_RECOVERY") {
+          setResetModal(true);
+        }
+      } catch (err) {
+        console.error("AUTH STATE CHANGE CRASH", err);
       }
     });
 
@@ -1173,74 +1374,103 @@ if (insertedError) {
   }
 
   async function handleLogin(form) {
-  console.log("LOGIN CLICKED", form);
+    try {
+      console.log("HANDLE LOGIN START", form);
 
-  const { error, data } = await supabase.auth.signInWithPassword({
-    email: form.email,
-    password: form.password,
-  });
+      if (!form.email || !form.password) {
+        addToast("Entrez votre email et mot de passe.", "error");
+        return;
+      }
 
-  console.log("LOGIN RESULT", { error, data });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: form.email.trim(),
+        password: form.password,
+      });
 
-  if (error) {
-    addToast(error.message, "error");
-    return;
+      console.log("LOGIN RESULT FULL", { data, error });
+
+      if (error) {
+        console.error("LOGIN ERROR FULL", error);
+        addToast(error.message || "Connexion impossible.", "error");
+        return;
+      }
+
+      if (!data?.user) {
+        addToast("Aucun utilisateur trouvé.", "error");
+        return;
+      }
+
+      const row = await ensureUserProfile(data.user);
+
+      const built = makeUser(
+        row || {
+          id: data.user.id,
+          full_name: data.user.user_metadata?.full_name || "Utilisateur",
+          email: data.user.email || "",
+          phone: data.user.user_metadata?.phone || "",
+          role: "customer",
+          is_member: false,
+          member_expiry: null,
+        }
+      );
+
+      setUser(built);
+      resetUiState();
+      setPage(built.isAdmin ? "admin" : "calendar");
+      await loadData(built);
+      addToast("Connexion réussie.");
+    } catch (err) {
+      console.error("HANDLE LOGIN CRASH", err);
+      addToast(err?.message || "Erreur inattendue pendant la connexion.", "error");
+    }
   }
 
-  const row = await ensureUserProfile(data.user);
-  const built = makeUser(row);
-  setUser(built);
-  setAuthModal(false);
-  setPage(built.isAdmin ? "admin" : "calendar");
-  await loadData(built);
-  addToast("Connexion réussie.");
-}
-  
   async function handleRegister(form) {
-  console.log("REGISTER CLICKED", form);
+    try {
+      if (!form.name || !form.phone || !form.email || !form.password) {
+        addToast("Remplissez tous les champs.", "error");
+        return;
+      }
 
-  if (!form.name || !form.phone || !form.email || !form.password) {
-    addToast("Remplissez tous les champs.", "error");
-    return;
+      const email = form.email.trim();
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: form.password,
+        options: {
+          data: {
+            full_name: form.name,
+            phone: form.phone,
+          },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      console.log("REGISTER RESULT", { data, error });
+
+      if (error) {
+        console.error("SIGNUP ERROR:", error);
+        addToast(error.message, "error");
+        return;
+      }
+
+      resetUiState();
+
+      if (data.session) {
+        addToast("Compte créé et connecté.");
+        await loadCurrentUser();
+      } else {
+        addToast("Compte créé. Vérifiez votre email pour confirmer le compte.", "info");
+      }
+    } catch (err) {
+      console.error("HANDLE REGISTER CRASH", err);
+      addToast(err?.message || "Erreur pendant l'inscription.", "error");
+    }
   }
-
-  const { error, data } = await supabase.auth.signUp({
-    email: form.email,
-    password: form.password,
-    options: {
-      data: {
-        full_name: form.name,
-        phone: form.phone,
-      },
-      emailRedirectTo: "https://jeux-dia-vite-app.vercel.app",
-    },
-  });
-
-  console.log("REGISTER RESULT", { error, data });
-
-  if (error) {
-    addToast(error.message, "error");
-    return;
-  }
-
-  if (data.user) {
-    await supabase.from("users").upsert({
-      id: data.user.id,
-      full_name: form.name,
-      phone: form.phone,
-      email: form.email,
-      role: "customer",
-      is_member: false,
-    });
-  }
-
-  setAuthModal(false);
-  addToast("Compte créé. Vérifiez votre email si confirmation activée.");
-}
 
   async function handleForgotPassword(email) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "https://jeux-dia-vite-app.vercel.app",
+      redirectTo: window.location.origin,
     });
 
     if (error) {
@@ -1268,7 +1498,7 @@ if (insertedError) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "https://jeux-dia-vite-app.vercel.app",
+        redirectTo: window.location.origin,
       },
     });
 
@@ -1276,10 +1506,26 @@ if (insertedError) {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
-    setUser(null);
-    setPage("calendar");
-    addToast("Déconnecté.", "info");
+    try {
+      console.log("LOGOUT CLICK");
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("LOGOUT ERROR", error);
+        addToast(error.message || "Erreur de déconnexion.", "error");
+        return;
+      }
+
+      setUser(null);
+      setPage("calendar");
+      resetUiState();
+      setRawUsers([]);
+      setLogs([]);
+      addToast("Déconnecté.", "info");
+    } catch (err) {
+      console.error("HANDLE LOGOUT CRASH", err);
+      addToast(err?.message || "Erreur de déconnexion.", "error");
+    }
   }
 
   async function confirmBooking() {
@@ -1361,7 +1607,7 @@ if (insertedError) {
   async function handleActivateMembership() {
     if (!user) return;
 
-    const expiry = addMinutes(new Date(), 30 * 24 * 60).toISOString();
+    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase
       .from("users")
@@ -1412,219 +1658,234 @@ if (insertedError) {
       ];
 
   const bookingConfirmData = useMemo(() => {
-  if (!bookingDraft) return null;
+    if (!bookingDraft) return null;
 
-  return {
-    ...bookingDraft,
-    amount: bookingDraft.amount,
-  };
-}, [bookingDraft]);
+    return {
+      ...bookingDraft,
+      amount: bookingDraft.amount,
+    };
+  }, [bookingDraft]);
 
   return (
-    <div className="page">
-      <GlobalStyle />
+    <ErrorBoundary>
+      <div className="page">
+        <GlobalStyle />
 
-      <header className="header">
-        <div className="container header-inner">
-          <button className="logo-btn" onClick={() => setPage("calendar")}>
-            <img src={logoImg} alt="Jeux Dia" />
-          </button>
+        <header className="header">
+          <div className="container header-inner">
+            <button
+              type="button"
+              className="logo-btn"
+              onClick={() => {
+                console.log("LOGO CLICK");
+                setPage("calendar");
+                resetUiState();
+              }}
+            >
+              <img src={logoImg} alt="Jeux Dia" />
+            </button>
 
-          <div className="nav">
-            {navItems.map((item) => (
-              <div
-                key={item.id}
-                className={`nav-item ${page === item.id ? "active" : ""}`}
-                onClick={() => setPage(item.id)}
-              >
-                {item.label}
-              </div>
-            ))}
+            <div className="nav">
+              {navItems.map((item) => (
+                <div
+                  key={item.id}
+                  className={`nav-item ${page === item.id ? "active" : ""}`}
+                  onClick={() => setPage(item.id)}
+                >
+                  {item.label}
+                </div>
+              ))}
 
-            {user ? (
-              <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
-                Sortir
-              </button>
-            ) : (
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthModal(true);
-                }}
-              >
-                Connexion
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="container" style={{ paddingTop: 24, paddingBottom: 90 }}>
-        {!user && page === "calendar" && (
-          <div className="hero">
-            <div className="tag tag-cyan">OUVERT</div>
-            <h1 className="orbitron" style={{ fontSize: 34, lineHeight: 1.1, marginBottom: 10 }}>
-              Vivez la réalité <span className="accent">virtuelle</span> à Lomé
-            </h1>
-            <p className="muted" style={{ marginBottom: 18 }}>
-              Réservez votre session VR en ligne.
-            </p>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setAuthMode("register");
-                  setAuthModal(true);
-                }}
-              >
-                Créer un compte →
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthModal(true);
-                }}
-              >
-                Se connecter
-              </button>
+              {user ? (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={handleLogout}>
+                  Sortir
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthModal(true);
+                  }}
+                >
+                  Connexion
+                </button>
+              )}
             </div>
           </div>
-        )}
+        </header>
 
-        {page === "calendar" && (
-          <CalendarView
-            user={user}
-            bookings={bookings}
-            addToast={addToast}
-            onOpenBooking={setBookingDraft}
-            onOpenBlock={(dateStr, time) => setBlockDraft({ dateStr, time })}
-          />
-        )}
+        <main className="container" style={{ paddingTop: 24, paddingBottom: 90 }}>
+          {!user && page === "calendar" && (
+            <div className="hero">
+              <div className="tag tag-cyan">OUVERT</div>
+              <h1 className="orbitron" style={{ fontSize: 34, lineHeight: 1.1, marginBottom: 10 }}>
+                Vivez la réalité <span className="accent">virtuelle</span> à Lomé
+              </h1>
+              <p className="muted" style={{ marginBottom: 18 }}>
+                Réservez votre session VR en ligne.
+              </p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setAuthMode("register");
+                    setAuthModal(true);
+                  }}
+                >
+                  Créer un compte →
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthModal(true);
+                  }}
+                >
+                  Se connecter
+                </button>
+              </div>
+            </div>
+          )}
 
-        {page === "membership" && (
-          <MembershipPage user={user} onActivate={handleActivateMembership} />
-        )}
+          {page === "calendar" && (
+            <CalendarView
+              user={user}
+              bookings={bookings}
+              addToast={addToast}
+              onOpenBooking={setBookingDraft}
+              onOpenBlock={(dateStr, time) => setBlockDraft({ dateStr, time })}
+            />
+          )}
 
-        {page === "profile" && user && <ProfilePage user={user} bookings={bookings} />}
+          {page === "membership" && (
+            <MembershipPage user={user} onActivate={handleActivateMembership} />
+          )}
 
-        {page === "admin" && user?.isAdmin && (
-          <AdminDashboard
-            users={rawUsers}
-            bookings={bookings}
-            logs={logs}
-            onEditUser={setEditUser}
-            onUnblock={handleUnblock}
-          />
-        )}
-      </main>
+          {page === "profile" && user && <ProfilePage user={user} bookings={bookings} />}
 
-      {!user && (
-        <div
-          style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(13,18,32,0.95)",
-            borderTop: "1px solid var(--border)",
-            padding: 14,
-            display: "flex",
-            gap: 10,
-            justifyContent: "center",
-          }}
-        >
-          <button
-            className="btn btn-ghost"
-            onClick={() => {
-              setAuthMode("login");
-              setAuthModal(true);
+          {page === "admin" && user?.isAdmin && (
+            <AdminDashboard
+              users={rawUsers}
+              bookings={bookings}
+              logs={logs}
+              onEditUser={setEditUser}
+              onUnblock={handleUnblock}
+            />
+          )}
+        </main>
+
+        {!user && (
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(13,18,32,0.95)",
+              borderTop: "1px solid var(--border)",
+              padding: 14,
+              display: "flex",
+              gap: 10,
+              justifyContent: "center",
             }}
           >
-            Se connecter
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setAuthMode("register");
-              setAuthModal(true);
-            }}
-          >
-            Créer un compte
-          </button>
-        </div>
-      )}
-
-      {authModal && (
-        <AuthModal
-          mode={authMode}
-          onClose={() => setAuthModal(false)}
-          onLogin={handleLogin}
-          onRegister={handleRegister}
-          onForgotPassword={() => {
-            setAuthModal(false);
-            setForgotModal(true);
-          }}
-          onGoogleLogin={handleGoogleLogin}
-        />
-      )}
-
-      {forgotModal && (
-        <ForgotPasswordModal
-          onClose={() => setForgotModal(false)}
-          onSubmit={handleForgotPassword}
-        />
-      )}
-
-      {resetModal && (
-        <ResetPasswordModal
-          onClose={() => setResetModal(false)}
-          onSubmit={handleResetPassword}
-        />
-      )}
-
-      {bookingConfirmData && (
-        <BookModal
-          booking={bookingConfirmData}
-          isMember={user?.memberStatus === "active"}
-          onClose={() => setBookingDraft(null)}
-          onConfirm={confirmBooking}
-        />
-      )}
-
-      {blockDraft && (
-        <Modal onClose={() => setBlockDraft(null)}>
-          <h3 style={{ marginTop: 0 }}>Bloquer ce créneau</h3>
-          <p className="muted">
-            {blockDraft.dateStr} à {blockDraft.time}
-          </p>
-          <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-            <button className="btn btn-danger" onClick={() => confirmBlock("Maintenance")}>
-              Maintenance
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setAuthMode("login");
+                setAuthModal(true);
+              }}
+            >
+              Se connecter
             </button>
-            <button className="btn btn-danger" onClick={() => confirmBlock("Événement privé")}>
-              Événement privé
-            </button>
-            <button className="btn btn-danger" onClick={() => confirmBlock("Nettoyage")}>
-              Nettoyage
-            </button>
-            <button className="btn btn-ghost" onClick={() => setBlockDraft(null)}>
-              Annuler
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setAuthMode("register");
+                setAuthModal(true);
+              }}
+            >
+              Créer un compte
             </button>
           </div>
-        </Modal>
-      )}
+        )}
 
-      {editUser && (
-        <EditUserModal
-          userData={editUser}
-          onClose={() => setEditUser(null)}
-          onSave={handleSaveUserEdit}
-        />
-      )}
+        {authModal && (
+          <AuthModal
+            mode={authMode}
+            onClose={() => setAuthModal(false)}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onForgotPassword={() => {
+              setAuthModal(false);
+              setForgotModal(true);
+            }}
+            onGoogleLogin={handleGoogleLogin}
+          />
+        )}
 
-      <Toasts items={toasts} />
-    </div>
+        {forgotModal && (
+          <ForgotPasswordModal
+            onClose={() => setForgotModal(false)}
+            onSubmit={handleForgotPassword}
+          />
+        )}
+
+        {resetModal && (
+          <ResetPasswordModal
+            onClose={() => setResetModal(false)}
+            onSubmit={handleResetPassword}
+          />
+        )}
+
+        {bookingConfirmData && (
+          <BookModal
+            booking={bookingConfirmData}
+            isMember={user?.memberStatus === "active"}
+            onClose={() => setBookingDraft(null)}
+            onConfirm={confirmBooking}
+          />
+        )}
+
+        {blockDraft && (
+          <Modal onClose={() => setBlockDraft(null)}>
+            <h3 style={{ marginTop: 0 }}>Bloquer ce créneau</h3>
+            <p className="muted">
+              {blockDraft.dateStr} à {blockDraft.time}
+            </p>
+            <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Maintenance")}>
+                Maintenance
+              </button>
+              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Événement privé")}>
+                Événement privé
+              </button>
+              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Nettoyage")}>
+                Nettoyage
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setBlockDraft(null)}>
+                Annuler
+              </button>
+            </div>
+          </Modal>
+        )}
+
+        {editUser && (
+          <EditUserModal
+            userData={editUser}
+            onClose={() => setEditUser(null)}
+            onSave={handleSaveUserEdit}
+          />
+        )}
+
+        <Toasts items={toasts} />
+      </div>
+    </ErrorBoundary>
   );
 }
