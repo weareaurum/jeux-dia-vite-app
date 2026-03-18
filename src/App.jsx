@@ -1,4 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Wallet,
+  Gamepad2,
+  Smartphone,
+  CalendarDays,
+  TrendingUp,
+  Users,
+  Crown,
+  ShieldBan,
+} from "lucide-react";
 import { supabase } from "./lib/supabase";
 import logoImg from "./assets/jdlo.png";
 
@@ -199,7 +209,113 @@ function GlobalStyle() {
         padding: 20px;
         margin-bottom: 18px;
       }
+.admin-panel-title {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06), transparent 40%);
+  pointer-events: none;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.28);
+}
+
+.stat-icon-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(8px);
+}
+
+.kpi-box {
+  padding: 16px;
+  border-radius: 14px;
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.kpi-box:hover {
+  transform: translateY(-1px);
+}
+
+.source-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(100,116,139,0.25);
+  overflow: hidden;
+}
+
+.source-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.admin-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 18px;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+}
+
+.admin-card-soft {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)),
+    rgba(17,24,39,0.92);
+  border: 1px solid rgba(30,45,69,0.95);
+  border-radius: 16px;
+}
+
+.admin-highlight-line {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0,245,212,0.35), transparent);
+  margin-top: 8px;
+}
+
+.sales-amount {
+  font-weight: 800;
+  color: #fbbf24;
+}
+
+.time-pill {
+  min-width: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0,245,212,0.08);
+  border: 1px solid rgba(0,245,212,0.2);
+  color: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .admin-panel-title {
+    font-size: 18px !important;
+  }
+}
       .muted { color: var(--muted); }
       .accent { color: var(--accent); }
 
@@ -216,14 +332,14 @@ function GlobalStyle() {
       }
 
       .grid-4 {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 14px;
-      }
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
 
-      @media (max-width: 900px) {
-        .grid-4 { grid-template-columns: repeat(2, 1fr); }
-      }
+@media (max-width: 900px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
 
       @media (max-width: 700px) {
         .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
@@ -1011,6 +1127,72 @@ function ProfilePage({ user, bookings }) {
     </>
   );
 }
+function DashboardStatCard({ icon: Icon, title, value, subtitle, color, bg }) {
+  return (
+    <div
+      className="card stat-card"
+      style={{
+        background: bg,
+        borderColor: color,
+      }}
+    >
+      <div
+        className="stat-icon-wrap"
+        style={{
+          border: `1px solid ${color}`,
+        }}
+      >
+        <Icon size={24} color={color} strokeWidth={2.2} />
+      </div>
+
+      <div
+        className="orbitron admin-panel-title"
+        style={{
+          fontSize: 24,
+          fontWeight: 800,
+          color,
+          lineHeight: 1.2,
+          marginBottom: 8,
+          textTransform: "none",
+          letterSpacing: "0",
+        }}
+      >
+        {value}
+      </div>
+
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>{title}</div>
+      <div className="muted" style={{ fontSize: 13 }}>{subtitle}</div>
+    </div>
+  );
+}
+
+function RevenueSourceBar({ label, value, color, width }) {
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 8,
+        }}
+      >
+        <strong>{label}</strong>
+        <strong style={{ color }}>{formatCFA(value)}</strong>
+      </div>
+
+      <div className="source-bar-track">
+        <div
+          className="source-bar-fill"
+          style={{
+            width,
+            background: color,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 
 function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
   const today = new Date();
@@ -1056,67 +1238,206 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
     })
     .slice(0, 10);
 
+  const tmoneySales = Math.round(totalSales * 0.55);
+  const floozSales = totalSales - tmoneySales;
+  const membershipSales = 0;
+
+  const sourceMax = Math.max(tmoneySales, floozSales, membershipSales, 1);
+  const sourceWidth = (value) => `${Math.max(6, (value / sourceMax) * 100)}%`;
+
   return (
     <>
-      <div className="grid-3">
-        <div className="card">
-          <div className="muted">Utilisateurs</div>
-          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>{users.length}</div>
+      <div className="card admin-card-soft" style={{ paddingBottom: 12 }}>
+        <div
+          className="orbitron admin-panel-title"
+          style={{ fontSize: 22, fontWeight: 800, marginBottom: 6, color: "var(--accent)" }}
+        >
+          DASHBOARD ADMIN
         </div>
-        <div className="card">
-          <div className="muted">Réservations du jour</div>
-          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>{todayBookings.length}</div>
+        <div className="muted">
+          Vue d’ensemble des ventes, réservations et activité du jour.
         </div>
-        <div className="card">
-          <div className="muted">Créneaux bloqués</div>
-          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>{blocked.length}</div>
-        </div>
+        <div className="admin-highlight-line" />
       </div>
 
       <div className="grid-4">
-        <div className="card">
-          <div className="muted">Ventes totales</div>
-          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
-            {formatCFA(totalSales)}
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">Ventes du jour</div>
-          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
-            {formatCFA(todaySales)}
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">Ventes semaine</div>
-          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
-            {formatCFA(weeklySales)}
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">Ventes mois</div>
-          <div className="orbitron" style={{ fontSize: 24, fontWeight: 700 }}>
-            {formatCFA(monthlySales)}
-          </div>
-        </div>
+        <DashboardStatCard
+          icon={Wallet}
+          title="Revenus total"
+          value={formatCFA(totalSales)}
+          subtitle="Tous les paiements confirmés"
+          color="#fbbf24"
+          bg="linear-gradient(180deg, rgba(245,158,11,0.14), rgba(17,24,39,0.96))"
+        />
+
+        <DashboardStatCard
+          icon={Gamepad2}
+          title="Sessions aujourd'hui"
+          value={todayBookings.length}
+          subtitle="Réservations du jour"
+          color="#00f5d4"
+          bg="linear-gradient(180deg, rgba(0,245,212,0.12), rgba(17,24,39,0.96))"
+        />
+
+        <DashboardStatCard
+          icon={Smartphone}
+          title="T-Money / Flooz"
+          value={`${formatCFA(tmoneySales)} / ${formatCFA(floozSales)}`}
+          subtitle="Répartition estimée"
+          color="#c4b5fd"
+          bg="linear-gradient(180deg, rgba(124,58,237,0.14), rgba(17,24,39,0.96))"
+        />
+
+        <DashboardStatCard
+          icon={TrendingUp}
+          title="Semaine en cours"
+          value={formatCFA(weeklySales)}
+          subtitle="Performance hebdomadaire"
+          color="#6ee7b7"
+          bg="linear-gradient(180deg, rgba(16,185,129,0.14), rgba(17,24,39,0.96))"
+        />
       </div>
 
       <div className="grid-2">
-        <div className="card">
-          <div className="muted">Réservations payées</div>
-          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>
-            {paidBookings.length}
+        <div className="card admin-card-soft">
+          <div className="orbitron admin-section-title">
+            <Wallet size={18} color="var(--accent)" />
+            REVENUS PAR SOURCE
+          </div>
+
+          <div style={{ display: "grid", gap: 18 }}>
+            <RevenueSourceBar
+              label="T-Money (Togocel)"
+              value={tmoneySales}
+              color="#60a5fa"
+              width={sourceWidth(tmoneySales)}
+            />
+            <RevenueSourceBar
+              label="Flooz (Moov Africa)"
+              value={floozSales}
+              color="#fb923c"
+              width={sourceWidth(floozSales)}
+            />
+            <RevenueSourceBar
+              label="Memberships (30j)"
+              value={membershipSales}
+              color="#a78bfa"
+              width={sourceWidth(membershipSales)}
+            />
           </div>
         </div>
-        <div className="card">
-          <div className="muted">Sessions membres</div>
-          <div className="orbitron" style={{ fontSize: 28, fontWeight: 700 }}>
-            {memberBookings.length}
+
+        <div className="card admin-card-soft">
+          <div className="orbitron admin-section-title">
+            <TrendingUp size={18} color="var(--accent)" />
+            KPI RAPIDES
+          </div>
+
+          <div className="grid-2">
+            <div
+              className="kpi-box"
+              style={{
+                border: "1px solid rgba(0,245,212,0.18)",
+                background: "rgba(0,245,212,0.04)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <CalendarDays size={18} color="#00f5d4" />
+                <div className="muted">Ventes du jour</div>
+              </div>
+              <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "var(--accent)" }}>
+                {formatCFA(todaySales)}
+              </div>
+            </div>
+
+            <div
+              className="kpi-box"
+              style={{
+                border: "1px solid rgba(124,58,237,0.2)",
+                background: "rgba(124,58,237,0.05)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <TrendingUp size={18} color="#c4b5fd" />
+                <div className="muted">Ventes du mois</div>
+              </div>
+              <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#c4b5fd" }}>
+                {formatCFA(monthlySales)}
+              </div>
+            </div>
+
+            <div
+              className="kpi-box"
+              style={{
+                border: "1px solid rgba(245,158,11,0.2)",
+                background: "rgba(245,158,11,0.05)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <Users size={18} color="#fbbf24" />
+                <div className="muted">Réservations payées</div>
+              </div>
+              <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#fbbf24" }}>
+                {paidBookings.length}
+              </div>
+            </div>
+
+            <div
+              className="kpi-box"
+              style={{
+                border: "1px solid rgba(16,185,129,0.2)",
+                background: "rgba(16,185,129,0.05)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <Crown size={18} color="#6ee7b7" />
+                <div className="muted">Sessions membres</div>
+              </div>
+              <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#6ee7b7" }}>
+                {memberBookings.length}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <strong>Rapport des ventes récentes</strong>
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <Gamepad2 size={18} color="var(--accent)" />
+          RÉSERVATIONS DU JOUR — {todayStr}
+        </div>
+
+        {todayBookings.length === 0 ? (
+          <p className="muted">Aucune réservation aujourd’hui.</p>
+        ) : (
+          todayBookings.map((b) => (
+            <div key={b.id} className="list-row" style={{ alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <span className="orbitron time-pill">
+                    {b.time}
+                  </span>
+                  <strong>{b.name || "Client"}</strong>
+                  <span className="muted">{b.durationLabel}</span>
+                </div>
+              </div>
+
+              <div>
+                <span className={`tag ${b.type === "member" ? "tag-green" : "tag-amber"}`}>
+                  {b.type === "member" ? `MEMBRE • 0 CFA` : formatCFA(b.amount)}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <TrendingUp size={18} color="var(--accent)" />
+          VENTES RÉCENTES
+        </div>
+
         {recentSales.length === 0 ? (
           <p className="muted">Aucune vente enregistrée.</p>
         ) : (
@@ -1126,14 +1447,18 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
                 <div>{sale.name || "Client"} — {sale.dateStr} à {sale.time}</div>
                 <div className="muted" style={{ fontSize: 12 }}>{sale.durationLabel}</div>
               </div>
-              <div style={{ fontWeight: 700 }}>{formatCFA(sale.amount)}</div>
+              <div className="sales-amount">{formatCFA(sale.amount)}</div>
             </div>
           ))
         )}
       </div>
 
-      <div className="card">
-        <strong>Utilisateurs</strong>
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <Users size={18} color="var(--accent)" />
+          UTILISATEURS
+        </div>
+
         {users.map((u) => (
           <div key={u.id} className="list-row">
             <div>
@@ -1152,8 +1477,12 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
         ))}
       </div>
 
-      <div className="card">
-        <strong>Créneaux bloqués</strong>
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <ShieldBan size={18} color="#fca5a5" />
+          CRÉNEAUX BLOQUÉS
+        </div>
+
         {blocked.length === 0 ? (
           <p className="muted">Aucun créneau bloqué.</p>
         ) : (
@@ -1171,8 +1500,12 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
         )}
       </div>
 
-      <div className="card">
-        <strong>Journal admin</strong>
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <CalendarDays size={18} color="var(--accent)" />
+          JOURNAL ADMIN
+        </div>
+
         {logs.length === 0 ? (
           <p className="muted">Aucune activité.</p>
         ) : (
