@@ -17,7 +17,7 @@ const LOGO_B64 = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BS
 function LogoMark({ size = 64 }) {
   return (
     <img
-      src={jdlo.png}
+      src={LOGO_B64}
       alt="Jeux Dia"
       width={size}
       height={size}
