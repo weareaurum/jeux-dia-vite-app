@@ -839,14 +839,19 @@ function ResetPasswordModal({ onClose, onSubmit }) {
   );
 }
 
-function BookModal({ booking, isMember, onClose, onConfirm }) {
-  const [promoCode, setPromoCode] = React.useState("");
-  const [promoResult, setPromoResult] = React.useState(null); // { discount, type, id, code } or null
+function BookModal({ booking, isMember, user, onClose, onConfirm }) {
+  const [promoCode, setPromoCode]   = React.useState("");
+  const [promoResult, setPromoResult] = React.useState(null);
   const [promoError, setPromoError] = React.useState("");
-  const [checking, setChecking] = React.useState(false);
+  const [checking, setChecking]     = React.useState(false);
+  const [phone, setPhone]           = React.useState("");
+  const [network, setNetwork]       = React.useState("tmoney");
+  const [paying, setPaying]         = React.useState(false);
+  const [paid, setPaid]             = React.useState(false);
+  const [payError, setPayError]     = React.useState("");
 
-  const baseAmount = isMember ? 0 : booking.amount;
-  const discount = promoResult
+  const baseAmount  = isMember ? 0 : booking.amount;
+  const discount    = promoResult
     ? promoResult.type === "percent"
       ? Math.round(baseAmount * promoResult.discount / 100)
       : Math.min(promoResult.discount, baseAmount)
@@ -855,30 +860,75 @@ function BookModal({ booking, isMember, onClose, onConfirm }) {
 
   async function checkPromo() {
     if (!promoCode.trim()) return;
-    setChecking(true);
-    setPromoError("");
-    setPromoResult(null);
-
+    setChecking(true); setPromoError(""); setPromoResult(null);
     const { data, error } = await (await import("./lib/supabase")).supabase
-      .from("promo_codes")
-      .select("*")
-      .eq("code", promoCode.trim().toUpperCase())
-      .eq("is_active", true)
-      .single();
-
+      .from("promo_codes").select("*")
+      .eq("code", promoCode.trim().toUpperCase()).eq("is_active", true).single();
     setChecking(false);
-
     if (error || !data) { setPromoError("Code invalide."); return; }
     if (data.expires_at && new Date(data.expires_at) < new Date()) { setPromoError("Code expiré."); return; }
     if (data.max_uses !== null && data.uses_count >= data.max_uses) { setPromoError("Code épuisé."); return; }
-
     setPromoResult({ discount: data.discount_value, type: data.discount_type, id: data.id, code: data.code });
+  }
+
+  async function handlePay() {
+    if (!isMember && !phone.trim()) { setPayError("Entrez votre numéro de téléphone."); return; }
+    setPaying(true); setPayError("");
+    try {
+      if (isMember) {
+        // Members don't pay — confirm directly
+        onConfirm(promoResult, 0);
+        return;
+      }
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            booking: {
+              userId:    user?.id,
+              dateStr:   booking.dateStr,
+              time:      booking.time,
+              duration:  booking.durationMinutes ?? booking.duration ?? 40,
+              amount:    finalAmount,
+              promoCode: promoResult?.code ?? null,
+            },
+            phone: phone.trim(),
+            network,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setPayError(data.error ?? "Erreur paiement.");
+        setPaying(false);
+        return;
+      }
+      setPaid(true);
+      setTimeout(() => { onConfirm(promoResult, finalAmount); }, 3000);
+    } catch (err) {
+      setPayError("Erreur réseau. Réessayez.");
+      setPaying(false);
+    }
+  }
+
+  if (paid) {
+    return (
+      <Modal onClose={onClose}>
+        <div style={{ textAlign: "center", padding: "20px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>
+          <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Notification envoyée !</h3>
+          <p className="muted">Vérifiez votre téléphone et approuvez le paiement {network === "tmoney" ? "T-Money" : "Flooz"} pour confirmer votre réservation.</p>
+        </div>
+      </Modal>
+    );
   }
 
   return (
     <Modal onClose={onClose}>
       <h3 style={{ marginTop: 0 }}>
-        {isMember ? "Réservation Membre" : "Confirmer la réservation"}
+        {isMember ? "Réservation Membre" : "Payer et réserver"}
       </h3>
 
       <div className="card" style={{ marginBottom: 0 }}>
@@ -904,35 +954,65 @@ function BookModal({ booking, isMember, onClose, onConfirm }) {
         )}
         <div className="list-row" style={{ borderBottom: "none" }}>
           <span className="muted">Montant</span>
-          <strong style={{ color: promoResult ? "#6ee7b7" : "inherit" }}>
-            {isMember ? "0 CFA" : formatCFA(finalAmount)}
+          <strong style={{ color: promoResult ? "#6ee7b7" : "var(--accent)" }}>
+            {isMember ? "Gratuit (membre)" : formatCFA(finalAmount)}
           </strong>
         </div>
       </div>
 
       {!isMember && (
-        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+        <>
+          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <input
+              className="input"
+              placeholder="Code promo"
+              value={promoCode}
+              onChange={(e) => { setPromoCode(e.target.value); setPromoResult(null); setPromoError(""); }}
+              style={{ flex: 1, textTransform: "uppercase" }}
+            />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking}>
+              {checking ? "..." : "Appliquer"}
+            </button>
+          </div>
+          {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
+          {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
+
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Paiement mobile money</p>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            {["tmoney", "flooz"].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setNetwork(n)}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${network === n ? "var(--accent)" : "var(--border)"}`,
+                  background: network === n ? "rgba(0,245,212,0.1)" : "transparent",
+                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                {n === "tmoney" ? "T-Money" : "Flooz"}
+              </button>
+            ))}
+          </div>
           <input
             className="input"
-            placeholder="Code promo"
-            value={promoCode}
-            onChange={(e) => { setPromoCode(e.target.value); setPromoResult(null); setPromoError(""); }}
-            style={{ flex: 1, textTransform: "uppercase" }}
+            placeholder="Numéro de téléphone (ex: 90000000)"
+            value={phone}
+            onChange={(e) => { setPhone(e.target.value); setPayError(""); }}
+            type="tel"
+            maxLength={8}
+            style={{ width: "100%", boxSizing: "border-box" }}
           />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking}>
-            {checking ? "..." : "Appliquer"}
-          </button>
-        </div>
+          {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
+        </>
       )}
-      {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
-      {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
 
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose} disabled={paying}>
           Annuler
         </button>
-        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onConfirm(promoResult, finalAmount)}>
-          Confirmer
+        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={handlePay} disabled={paying}>
+          {paying ? "Envoi..." : isMember ? "Confirmer" : `Payer ${formatCFA(finalAmount)}`}
         </button>
       </div>
     </Modal>
@@ -3304,6 +3384,7 @@ export default function App() {
           <BookModal
             booking={bookingConfirmData}
             isMember={user?.memberStatus === "active"}
+            user={user}
             onClose={() => setBookingDraft(null)}
             onConfirm={confirmBooking}
           />
