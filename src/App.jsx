@@ -593,6 +593,7 @@ function expandBookingRow(row) {
     isPrimary: i === 0,
     amount: i === 0 ? row.price || 0 : 0,
     durationLabel: minutes >= 60 ? "1 heure" : "15 min",
+    paymentStatus: row.payment_status || "pending",
   }));
 
   const bufferTime = TIME_SLOTS[startIndex + slots];
@@ -830,6 +831,41 @@ function ResetPasswordModal({ onClose, onSubmit }) {
 }
 
 function BookModal({ booking, isMember, onClose, onConfirm }) {
+  const [promoCode, setPromoCode] = React.useState("");
+  const [promoResult, setPromoResult] = React.useState(null); // { discount, type, id, code } or null
+  const [promoError, setPromoError] = React.useState("");
+  const [checking, setChecking] = React.useState(false);
+
+  const baseAmount = isMember ? 0 : booking.amount;
+  const discount = promoResult
+    ? promoResult.type === "percent"
+      ? Math.round(baseAmount * promoResult.discount / 100)
+      : Math.min(promoResult.discount, baseAmount)
+    : 0;
+  const finalAmount = Math.max(0, baseAmount - discount);
+
+  async function checkPromo() {
+    if (!promoCode.trim()) return;
+    setChecking(true);
+    setPromoError("");
+    setPromoResult(null);
+
+    const { data, error } = await (await import("./lib/supabase")).supabase
+      .from("promo_codes")
+      .select("*")
+      .eq("code", promoCode.trim().toUpperCase())
+      .eq("is_active", true)
+      .single();
+
+    setChecking(false);
+
+    if (error || !data) { setPromoError("Code invalide."); return; }
+    if (data.expires_at && new Date(data.expires_at) < new Date()) { setPromoError("Code expiré."); return; }
+    if (data.max_uses !== null && data.uses_count >= data.max_uses) { setPromoError("Code épuisé."); return; }
+
+    setPromoResult({ discount: data.discount_value, type: data.discount_type, id: data.id, code: data.code });
+  }
+
   return (
     <Modal onClose={onClose}>
       <h3 style={{ marginTop: 0 }}>
@@ -845,17 +881,48 @@ function BookModal({ booking, isMember, onClose, onConfirm }) {
           <span className="muted">Durée</span>
           <strong>{booking.durationLabel}</strong>
         </div>
+        {!isMember && promoResult && (
+          <>
+            <div className="list-row">
+              <span className="muted">Prix de base</span>
+              <span>{formatCFA(baseAmount)}</span>
+            </div>
+            <div className="list-row">
+              <span className="muted" style={{ color: "#6ee7b7" }}>Réduction ({promoResult.code})</span>
+              <span style={{ color: "#6ee7b7" }}>−{formatCFA(discount)}</span>
+            </div>
+          </>
+        )}
         <div className="list-row" style={{ borderBottom: "none" }}>
           <span className="muted">Montant</span>
-          <strong>{isMember ? "0 CFA" : formatCFA(booking.amount)}</strong>
+          <strong style={{ color: promoResult ? "#6ee7b7" : "inherit" }}>
+            {isMember ? "0 CFA" : formatCFA(finalAmount)}
+          </strong>
         </div>
       </div>
+
+      {!isMember && (
+        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+          <input
+            className="input"
+            placeholder="Code promo"
+            value={promoCode}
+            onChange={(e) => { setPromoCode(e.target.value); setPromoResult(null); setPromoError(""); }}
+            style={{ flex: 1, textTransform: "uppercase" }}
+          />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking}>
+            {checking ? "..." : "Appliquer"}
+          </button>
+        </div>
+      )}
+      {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
+      {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
 
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
         <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>
           Annuler
         </button>
-        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={onConfirm}>
+        <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onConfirm(promoResult, finalAmount)}>
           Confirmer
         </button>
       </div>
@@ -905,7 +972,181 @@ function EditUserModal({ userData, onClose, onSave }) {
   );
 }
 
-function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, addToast }) {
+function RescheduleModal({ booking, bookings, onClose, onConfirm }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [weekOffset, setWeekOffset] = React.useState(0);
+  const [selectedDate, setSelectedDate] = React.useState(today);
+  const [selectedTime, setSelectedTime] = React.useState(null);
+  const dateStr = toDateStr(selectedDate);
+  const slots = booking.durationMinutes >= 60 ? 4 : 1;
+
+  const weekDates = getWeekDates(weekOffset);
+
+  function slotStatus(time) {
+    const found = bookings.find(
+      (b) => b.dateStr === dateStr && b.time === time && b.sourceId !== booking.sourceId
+    );
+    if (!found) return "available";
+    if (found.type === "buffer" || found.type === "booked" || found.type === "blocked") return "taken";
+    return "available";
+  }
+
+  function isSlotSelectable(time) {
+    const startIndex = TIME_SLOTS.indexOf(time);
+    const needed = TIME_SLOTS.slice(startIndex, startIndex + slots);
+    return needed.length === slots && needed.every((t) => slotStatus(t) === "available");
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="orbitron" style={{ marginTop: 0, fontSize: 16 }}>
+        Modifier la réservation
+      </h3>
+      <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        Actuelle : {booking.dateStr} à {booking.time} ({booking.durationLabel})
+      </p>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v - 1)}>←</button>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {MONTHS[weekDates[0].getMonth()]} {weekDates[0].getFullYear()}
+        </span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWeekOffset((v) => v + 1)}>→</button>
+      </div>
+
+      <div className="week-grid" style={{ marginBottom: 12 }}>
+        {weekDates.map((d) => {
+          const isPast = d < today;
+          return (
+            <div
+              key={d.toISOString()}
+              className={`day-box ${d.toDateString() === selectedDate.toDateString() ? "active" : ""} ${isPast ? "disabled" : ""}`}
+              onClick={() => { if (!isPast) { setSelectedDate(new Date(d)); setSelectedTime(null); } }}
+              style={{ opacity: isPast ? 0.35 : 1, cursor: isPast ? "not-allowed" : "pointer" }}
+            >
+              <div className="muted" style={{ fontSize: 11 }}>{DAYS[d.getDay()]}</div>
+              <div className="orbitron" style={{ fontWeight: 700 }}>{d.getDate()}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, maxHeight: 200, overflowY: "auto", marginBottom: 14 }}>
+        {TIME_SLOTS.map((time) => {
+          const ok = isSlotSelectable(time);
+          const selected = selectedTime === time;
+          return (
+            <button
+              key={time}
+              type="button"
+              disabled={!ok}
+              onClick={() => ok && setSelectedTime(time)}
+              style={{
+                padding: "6px 4px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: `1px solid ${selected ? "var(--accent)" : ok ? "var(--border)" : "transparent"}`,
+                background: selected ? "var(--accent)" : ok ? "rgba(255,255,255,0.04)" : "transparent",
+                color: selected ? "#050810" : ok ? "var(--text)" : "var(--muted)",
+                cursor: ok ? "pointer" : "not-allowed",
+                fontWeight: selected ? 700 : 400,
+              }}
+            >
+              {time}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Annuler</button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ flex: 1 }}
+          disabled={!selectedTime}
+          onClick={() => selectedTime && onConfirm({ dateStr, time: selectedTime })}
+        >
+          Confirmer
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function AdminSlotModal({ dateStr, time, onClose, onBlock, onBook }) {
+  const [mode, setMode] = React.useState(null); // "block" | "book"
+  const [blockReason, setBlockReason] = React.useState("");
+  const [bookForm, setBookForm] = React.useState({
+    name: "", phone: "", duration: 15, price: 1000,
+  });
+
+  if (!mode) {
+    return (
+      <Modal onClose={onClose}>
+        <h3 style={{ marginTop: 0 }}>Créneau — {dateStr} à {time}</h3>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>Que voulez-vous faire avec ce créneau ?</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button type="button" className="btn btn-primary" onClick={() => setMode("book")}>
+            📋 Réservation manuelle (client)
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setMode("block")}>
+            🔒 Bloquer le créneau
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  if (mode === "block") {
+    return (
+      <Modal onClose={onClose}>
+        <h3 style={{ marginTop: 0 }}>Bloquer — {dateStr} à {time}</h3>
+        <input
+          className="input"
+          placeholder="Raison (optionnel)"
+          value={blockReason}
+          onChange={(e) => setBlockReason(e.target.value)}
+          style={{ marginBottom: 14 }}
+        />
+        <div style={{ display: "flex", gap: 10 }}>
+          <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setMode(null)}>Retour</button>
+          <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onBlock(blockReason)}>Bloquer</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 style={{ marginTop: 0 }}>Réservation manuelle — {dateStr} à {time}</h3>
+      <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+        <input className="input" placeholder="Nom du client *" value={bookForm.name} onChange={(e) => setBookForm((f) => ({ ...f, name: e.target.value }))} />
+        <input className="input" placeholder="Téléphone *" value={bookForm.phone} onChange={(e) => setBookForm((f) => ({ ...f, phone: e.target.value }))} />
+        <select className="input" value={bookForm.duration} onChange={(e) => setBookForm((f) => ({ ...f, duration: Number(e.target.value), price: Number(e.target.value) >= 60 ? 3000 : 1000 }))}>
+          <option value={15}>15 min — 1 000 CFA</option>
+          <option value={60}>1 heure — 3 000 CFA</option>
+        </select>
+        <input className="input" type="number" placeholder="Prix (CFA)" value={bookForm.price} onChange={(e) => setBookForm((f) => ({ ...f, price: Number(e.target.value) }))} />
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setMode(null)}>Retour</button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ flex: 1 }}
+          disabled={!bookForm.name || !bookForm.phone}
+          onClick={() => onBook(bookForm)}
+        >
+          Confirmer
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, onOpenAdminSlot, addToast }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -929,7 +1170,7 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, addToast }) 
     const status = slotStatus(time);
 
     if (user?.isAdmin) {
-      if (status.type === "available") onOpenBlock(dateStr, time);
+      if (status.type === "available") onOpenAdminSlot(dateStr, time);
       return;
     }
 
@@ -1064,10 +1305,15 @@ function MembershipPage({ user, onActivate }) {
           </>
         ) : (
           <>
-            <p style={{ fontWeight: 700, color: "#fcd34d" }}>10,000 CFA</p>
+            {user?.memberStatus === "expired" && (
+              <p style={{ color: "#fca5a5", fontWeight: 600, marginBottom: 8 }}>
+                Votre pass a expiré. Renouvelez-le pour reprendre les avantages.
+              </p>
+            )}
+            <p style={{ fontWeight: 700, color: "#fcd34d" }}>10,000 CFA / 30 jours</p>
             {user ? (
               <button type="button" className="btn btn-purple" onClick={onActivate}>
-                Activer le Pass Membre
+                {user.memberStatus === "expired" ? "Renouveler le Pass Membre" : "Activer le Pass Membre"}
               </button>
             ) : (
               <p className="muted">Connectez-vous pour activer le membership.</p>
@@ -1087,7 +1333,10 @@ function MembershipPage({ user, onActivate }) {
   );
 }
 
-function ProfilePage({ user, bookings }) {
+function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) {
+  const now = new Date();
+  const [editing, setEditing] = React.useState(false);
+  const [form, setForm] = React.useState({ name: user?.name || "", phone: user?.phone || "" });
   const mine = bookings.filter(
     (b) =>
       b.phone === user?.phone &&
@@ -1095,16 +1344,96 @@ function ProfilePage({ user, bookings }) {
       (b.type === "booked" || b.type === "member")
   );
 
+  const paidHistory = mine
+    .filter((b) => b.type === "booked" && b.paymentStatus === "paid")
+    .sort((a, b) => new Date(`${b.dateStr}T${b.time}`) - new Date(`${a.dateStr}T${a.time}`));
+
+  const totalPaid = paidHistory.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+  const pending = mine.filter((b) => b.type === "booked" && b.paymentStatus !== "paid");
+
   return (
     <>
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>{user?.name}</h2>
-        <div className="muted">{user?.email}</div>
-        <div className="muted">{user?.phone}</div>
-        {user?.memberStatus === "active" && (
-          <div style={{ marginTop: 10 }}>
-            <span className="tag tag-green">MEMBRE ACTIF</span>
+        {editing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input
+              className="input"
+              placeholder="Nom complet"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <input
+              className="input"
+              placeholder="Téléphone"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => { onSaveProfile(form); setEditing(false); }}
+              >
+                Sauvegarder
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>
+                Annuler
+              </button>
+            </div>
           </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <h2 style={{ marginTop: 0 }}>{user?.name}</h2>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setForm({ name: user?.name || "", phone: user?.phone || "" }); setEditing(true); }}>
+                Modifier
+              </button>
+            </div>
+            <div className="muted">{user?.email}</div>
+            <div className="muted">{user?.phone}</div>
+            {user?.memberStatus === "active" && (
+              <div style={{ marginTop: 10 }}>
+                <span className="tag tag-green">MEMBRE ACTIF</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <strong>Historique des paiements</strong>
+          <span className="orbitron" style={{ color: "var(--accent)", fontSize: 14 }}>{formatCFA(totalPaid)}</span>
+        </div>
+        {paidHistory.length === 0 && pending.length === 0 ? (
+          <p className="muted">Aucun paiement enregistré.</p>
+        ) : (
+          <>
+            {paidHistory.map((b) => (
+              <div key={b.id} className="list-row">
+                <div>
+                  <div>{b.dateStr} à {b.time}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="tag tag-green">PAYÉ</span>
+                  <span style={{ fontWeight: 700 }}>{formatCFA(b.amount)}</span>
+                </div>
+              </div>
+            ))}
+            {pending.map((b) => (
+              <div key={b.id} className="list-row">
+                <div>
+                  <div>{b.dateStr} à {b.time}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="tag tag-amber">EN ATTENTE</span>
+                  <span>{formatCFA(b.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
@@ -1113,15 +1442,44 @@ function ProfilePage({ user, bookings }) {
         {mine.length === 0 ? (
           <p className="muted">Aucune réservation.</p>
         ) : (
-          mine.map((b) => (
-            <div key={b.id} className="list-row">
-              <div>
-                <div>{b.dateStr} à {b.time}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+          mine.map((b) => {
+            const isFuture = new Date(`${b.dateStr}T${b.time}:00`) > now;
+            return (
+              <div key={b.id} className="list-row">
+                <div>
+                  <div>{b.dateStr} à {b.time}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {b.type !== "member" && (
+                    <span className={`tag ${b.paymentStatus === "paid" ? "tag-green" : "tag-amber"}`}>
+                      {b.paymentStatus === "paid" ? "PAYÉ" : "EN ATTENTE"}
+                    </span>
+                  )}
+                  <span>{b.type === "member" ? "0 CFA" : formatCFA(b.amount)}</span>
+                  {isFuture && b.type === "booked" && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => onReschedule(b)}
+                      >
+                        Modifier
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: "#fca5a5" }}
+                        onClick={() => onCancel(b)}
+                      >
+                        Annuler
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div>{b.type === "member" ? "0 CFA" : formatCFA(b.amount)}</div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </>
@@ -1194,7 +1552,334 @@ function RevenueSourceBar({ label, value, color, width }) {
   );
 }
 
-function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
+const EVENT_BASE_GUESTS = 5;
+const EVENT_BASE_HOURS = 4;
+const EVENT_BASE_PRICE = 25000;
+const EVENT_EXTRA_PERSON = 2000;
+const EVENT_EXTRA_HOUR = 5000;
+const EVENT_DISTANCE_RATE = 5000; // per 10km
+
+function calcEventPrice(guests, hours, distanceKm) {
+  const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
+  const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
+  const distanceFee = Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE;
+  return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
+}
+
+function EventsPage({ user, onSubmit }) {
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm] = React.useState({
+    eventDate: "",
+    startTime: "09:00",
+    guests: 5,
+    hours: 4,
+    distanceKm: 0,
+    location: "",
+    notes: "",
+  });
+
+  const maxGuests = EVENT_BASE_GUESTS + (form.hours * 8) - EVENT_BASE_GUESTS;
+  const capacityMax = form.hours * 8;
+  const total = calcEventPrice(form.guests, form.hours, form.distanceKm);
+  const extraGuests = Math.max(0, form.guests - EVENT_BASE_GUESTS);
+  const extraHours = Math.max(0, form.hours - EVENT_BASE_HOURS);
+  const distanceFee = Math.ceil(form.distanceKm / 10) * EVENT_DISTANCE_RATE;
+
+  function set(key, val) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  function handleSubmit() {
+    if (!user) return;
+    if (!form.eventDate) { return; }
+    if (!form.location.trim()) { return; }
+    onSubmit({ ...form, total });
+  }
+
+  return (
+    <>
+      <div className="card">
+        <h2 className="orbitron" style={{ marginTop: 0 }}>
+          VR <span className="accent">ÉVÉNEMENTS</span>
+        </h2>
+        <p className="muted">
+          Nous nous déplaçons chez vous pour vos fêtes, anniversaires et événements d'entreprise. 2 casques VR, animation incluse.
+        </p>
+      </div>
+
+      <div className="card">
+        <strong style={{ display: "block", marginBottom: 16 }}>Configurer votre événement</strong>
+
+        <div style={{ display: "grid", gap: 14 }}>
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Date de l'événement</label>
+            <input
+              type="date"
+              className="input"
+              min={today}
+              value={form.eventDate}
+              onChange={(e) => set("eventDate", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Heure de début</label>
+            <input
+              type="time"
+              className="input"
+              value={form.startTime}
+              onChange={(e) => set("startTime", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+              Nombre d'invités — <strong>{form.guests} personnes</strong>
+              {form.guests > capacityMax && <span style={{ color: "#fca5a5" }}> (max {capacityMax} pour {form.hours}h)</span>}
+            </label>
+            <input
+              type="range"
+              min={EVENT_BASE_GUESTS}
+              max={60}
+              value={form.guests}
+              onChange={(e) => set("guests", Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
+              <span>5</span><span>60</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+              Durée — <strong>{form.hours} heures</strong>
+            </label>
+            <input
+              type="range"
+              min={EVENT_BASE_HOURS}
+              max={10}
+              value={form.hours}
+              onChange={(e) => set("hours", Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
+              <span>4h</span><span>10h</span>
+            </div>
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Capacité max avec 2 casques : <strong>{capacityMax} personnes</strong> en {form.hours}h
+            </p>
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+              Distance depuis Adidogomé — <strong>{form.distanceKm} km</strong>
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={150}
+              step={5}
+              value={form.distanceKm}
+              onChange={(e) => set("distanceKm", Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
+              <span>0 km (Adidogomé)</span><span>150 km</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Adresse / Lieu de l'événement *</label>
+            <input
+              className="input"
+              placeholder="Ex: Quartier Bè, Lomé"
+              value={form.location}
+              onChange={(e) => set("location", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Notes (optionnel)</label>
+            <input
+              className="input"
+              placeholder="Ex: Anniversaire, thème souhaité..."
+              value={form.notes}
+              onChange={(e) => set("notes", e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ background: "linear-gradient(180deg, rgba(0,245,212,0.07), rgba(17,24,39,0.96))", borderColor: "var(--accent)" }}>
+        <strong style={{ display: "block", marginBottom: 12 }}>Récapitulatif du devis</strong>
+        <div className="list-row">
+          <span className="muted">Forfait de base (5 pers. / 4h)</span>
+          <span>{formatCFA(EVENT_BASE_PRICE)}</span>
+        </div>
+        {extraGuests > 0 && (
+          <div className="list-row">
+            <span className="muted">+{extraGuests} invité{extraGuests > 1 ? "s" : ""} supplémentaire{extraGuests > 1 ? "s" : ""}</span>
+            <span>{formatCFA(extraGuests * EVENT_EXTRA_PERSON)}</span>
+          </div>
+        )}
+        {extraHours > 0 && (
+          <div className="list-row">
+            <span className="muted">+{extraHours}h supplémentaire{extraHours > 1 ? "s" : ""}</span>
+            <span>{formatCFA(extraHours * EVENT_EXTRA_HOUR)}</span>
+          </div>
+        )}
+        {distanceFee > 0 && (
+          <div className="list-row">
+            <span className="muted">Déplacement ({form.distanceKm} km)</span>
+            <span>{formatCFA(distanceFee)}</span>
+          </div>
+        )}
+        <div className="list-row" style={{ borderBottom: "none", marginTop: 8 }}>
+          <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
+          <strong className="orbitron" style={{ fontSize: 20, color: "var(--accent)" }}>{formatCFA(total)}</strong>
+        </div>
+      </div>
+
+      {user ? (
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ width: "100%", padding: "14px" }}
+          onClick={handleSubmit}
+          disabled={!form.eventDate || !form.location.trim()}
+        >
+          Envoyer la demande →
+        </button>
+      ) : (
+        <p className="muted" style={{ textAlign: "center" }}>Connectez-vous pour soumettre une demande.</p>
+      )}
+    </>
+  );
+}
+
+function PromoCodesSection({ onRefresh }) {
+  const [codes, setCodes] = React.useState([]);
+  const [form, setForm] = React.useState({ code: "", discount_type: "fixed", discount_value: "", max_uses: "", expires_at: "" });
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => { fetchCodes(); }, []);
+
+  async function fetchCodes() {
+    const { data } = await (await import("./lib/supabase")).supabase
+      .from("promo_codes").select("*").order("created_at", { ascending: false });
+    setCodes(data || []);
+  }
+
+  async function handleCreate() {
+    if (!form.code.trim() || !form.discount_value) return;
+    setLoading(true);
+    const { error } = await (await import("./lib/supabase")).supabase.from("promo_codes").insert({
+      code: form.code.trim().toUpperCase(),
+      discount_type: form.discount_type,
+      discount_value: Number(form.discount_value),
+      max_uses: form.max_uses ? Number(form.max_uses) : null,
+      expires_at: form.expires_at || null,
+      is_active: true,
+      uses_count: 0,
+    });
+    setLoading(false);
+    if (error) { alert(error.message); return; }
+    setForm({ code: "", discount_type: "fixed", discount_value: "", max_uses: "", expires_at: "" });
+    fetchCodes();
+  }
+
+  async function toggleActive(id, current) {
+    await (await import("./lib/supabase")).supabase.from("promo_codes").update({ is_active: !current }).eq("id", id);
+    fetchCodes();
+  }
+
+  return (
+    <div className="card admin-card-soft">
+      <div className="orbitron admin-section-title" style={{ marginBottom: 14 }}>
+        <Crown size={18} color="#fbbf24" />
+        CODES PROMO
+      </div>
+
+      <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            className="input"
+            placeholder="Code (ex: FETE20)"
+            value={form.code}
+            onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+            style={{ flex: 1, minWidth: 120 }}
+          />
+          <select
+            className="input"
+            value={form.discount_type}
+            onChange={(e) => setForm((f) => ({ ...f, discount_type: e.target.value }))}
+            style={{ flex: 1, minWidth: 120 }}
+          >
+            <option value="fixed">Fixe (CFA)</option>
+            <option value="percent">Pourcentage (%)</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            className="input"
+            type="number"
+            placeholder={form.discount_type === "percent" ? "Réduction (%)" : "Réduction (CFA)"}
+            value={form.discount_value}
+            onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))}
+            style={{ flex: 1 }}
+          />
+          <input
+            className="input"
+            type="number"
+            placeholder="Utilisations max (vide = illimité)"
+            value={form.max_uses}
+            onChange={(e) => setForm((f) => ({ ...f, max_uses: e.target.value }))}
+            style={{ flex: 1 }}
+          />
+          <input
+            className="input"
+            type="date"
+            placeholder="Expiration (optionnel)"
+            value={form.expires_at}
+            onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
+            style={{ flex: 1 }}
+          />
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={handleCreate} disabled={loading}>
+          {loading ? "..." : "Créer le code"}
+        </button>
+      </div>
+
+      {codes.length === 0 ? (
+        <p className="muted">Aucun code promo.</p>
+      ) : (
+        codes.map((c) => (
+          <div key={c.id} className="list-row">
+            <div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <strong>{c.code}</strong>
+                <span className={`tag ${c.is_active ? "tag-green" : "tag-amber"}`}>
+                  {c.is_active ? "ACTIF" : "INACTIF"}
+                </span>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {c.discount_type === "percent" ? `${c.discount_value}%` : formatCFA(c.discount_value)} de réduction
+                {" · "}{c.uses_count} utilisé{c.uses_count !== 1 ? "s" : ""}
+                {c.max_uses ? ` / ${c.max_uses}` : " (illimité)"}
+                {c.expires_at ? ` · Expire ${c.expires_at}` : ""}
+              </div>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleActive(c.id, c.is_active)}>
+              {c.is_active ? "Désactiver" : "Activer"}
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onAdminCancel, onConfirmEvent, onCancelEvent }) {
   const today = new Date();
   const todayStr = toDateStr(today);
   const startOfWeek = getStartOfWeek(today);
@@ -1207,7 +1892,8 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
   const todayBookings = primaryBookings.filter((b) => b.dateStr === todayStr);
   const blocked = bookings.filter((b) => b.type === "blocked" && b.isPrimary);
 
-  const paidBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0);
+  const paidBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0 && b.paymentStatus === "paid");
+  const pendingBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0 && b.paymentStatus !== "paid");
   const memberBookings = primaryBookings.filter((b) => b.type === "member");
 
   const totalSales = paidBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0);
@@ -1230,7 +1916,33 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
     })
     .reduce((sum, b) => sum + Number(b.amount || 0), 0);
 
-  const recentSales = [...paidBookings]
+  const allPricedBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0);
+
+  // Customer growth: signups per month
+  const growthByMonth = users.reduce((acc, u) => {
+    if (!u.created_at) return acc;
+    const month = u.created_at.slice(0, 7); // "YYYY-MM"
+    acc[month] = (acc[month] || 0) + 1;
+    return acc;
+  }, {});
+  const growthData = Object.entries(growthByMonth)
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(-6); // last 6 months
+  const growthMax = Math.max(...growthData.map((m) => m.count), 1);
+  const totalMembers = users.filter((u) => u.is_member).length;
+
+  const hourCounts = primaryBookings.reduce((acc, b) => {
+    const hour = b.time ? b.time.split(":")[0] + "h00" : null;
+    if (hour) acc[hour] = (acc[hour] || 0) + 1;
+    return acc;
+  }, {});
+  const peakHours = Object.entries(hourCounts)
+    .map(([hour, count]) => ({ hour, count }))
+    .sort((a, b) => a.hour.localeCompare(b.hour));
+  const peakMax = Math.max(...peakHours.map((h) => h.count), 1);
+
+  const recentSales = [...allPricedBookings]
     .sort((a, b) => {
       const aDate = new Date(`${a.dateStr}T${a.time}:00`).getTime();
       const bDate = new Date(`${b.dateStr}T${b.time}:00`).getTime();
@@ -1375,10 +2087,10 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <Users size={18} color="#fbbf24" />
-                <div className="muted">Réservations payées</div>
+                <div className="muted">Payées / En attente</div>
               </div>
               <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#fbbf24" }}>
-                {paidBookings.length}
+                {paidBookings.length} / {pendingBookings.length}
               </div>
             </div>
 
@@ -1403,6 +2115,76 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
 
       <div className="card admin-card-soft">
         <div className="orbitron admin-section-title">
+          <TrendingUp size={18} color="var(--accent)" />
+          HEURES DE POINTE
+        </div>
+
+        {peakHours.length === 0 ? (
+          <p className="muted">Pas encore de données.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {peakHours.map(({ hour, count }) => (
+              <div key={hour} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="orbitron" style={{ fontSize: 12, minWidth: 44, color: "var(--muted)" }}>{hour}</span>
+                <div style={{ flex: 1, height: 10, background: "rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${Math.round((count / peakMax) * 100)}%`,
+                    background: count === peakMax ? "var(--accent)" : "rgba(0,245,212,0.4)",
+                    borderRadius: 6,
+                    transition: "width 0.3s",
+                  }} />
+                </div>
+                <span className="muted" style={{ fontSize: 12, minWidth: 24, textAlign: "right" }}>{count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <Users size={18} color="#c4b5fd" />
+          CROISSANCE CLIENTS
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+          <div className="kpi-box" style={{ flex: 1, border: "1px solid rgba(196,181,253,0.2)", background: "rgba(124,58,237,0.05)" }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Total clients</div>
+            <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#c4b5fd" }}>{users.length}</div>
+          </div>
+          <div className="kpi-box" style={{ flex: 1, border: "1px solid rgba(110,231,183,0.2)", background: "rgba(16,185,129,0.05)" }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Membres actifs</div>
+            <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#6ee7b7" }}>{totalMembers}</div>
+          </div>
+        </div>
+
+        {growthData.length === 0 ? (
+          <p className="muted">Pas encore de données.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {growthData.map(({ month, count }) => (
+              <div key={month} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="muted" style={{ fontSize: 12, minWidth: 54 }}>
+                  {new Date(month + "-01").toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })}
+                </span>
+                <div style={{ flex: 1, height: 10, background: "rgba(255,255,255,0.06)", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${Math.round((count / growthMax) * 100)}%`,
+                    background: "rgba(196,181,253,0.6)",
+                    borderRadius: 6,
+                  }} />
+                </div>
+                <span className="muted" style={{ fontSize: 12, minWidth: 24, textAlign: "right" }}>{count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
           <Gamepad2 size={18} color="var(--accent)" />
           RÉSERVATIONS DU JOUR — {todayStr}
         </div>
@@ -1414,18 +2196,23 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
             <div key={b.id} className="list-row" style={{ alignItems: "center" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <span className="orbitron time-pill">
-                    {b.time}
-                  </span>
+                  <span className="orbitron time-pill">{b.time}</span>
                   <strong>{b.name || "Client"}</strong>
                   <span className="muted">{b.durationLabel}</span>
                 </div>
               </div>
-
-              <div>
-                <span className={`tag ${b.type === "member" ? "tag-green" : "tag-amber"}`}>
-                  {b.type === "member" ? `MEMBRE • 0 CFA` : formatCFA(b.amount)}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span className={`tag ${b.type === "member" ? "tag-green" : b.paymentStatus === "paid" ? "tag-green" : "tag-amber"}`}>
+                  {b.type === "member" ? "MEMBRE • 0 CFA" : b.paymentStatus === "paid" ? `PAYÉ • ${formatCFA(b.amount)}` : `EN ATTENTE • ${formatCFA(b.amount)}`}
                 </span>
+                {b.type !== "member" && b.paymentStatus !== "paid" && (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmPayment(b)}>
+                    Marquer payé
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => onAdminCancel(b)}>
+                  Annuler
+                </button>
               </div>
             </div>
           ))
@@ -1447,11 +2234,70 @@ function AdminDashboard({ users, bookings, logs, onEditUser, onUnblock }) {
                 <div>{sale.name || "Client"} — {sale.dateStr} à {sale.time}</div>
                 <div className="muted" style={{ fontSize: 12 }}>{sale.durationLabel}</div>
               </div>
-              <div className="sales-amount">{formatCFA(sale.amount)}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span className={`tag ${sale.paymentStatus === "paid" ? "tag-green" : "tag-amber"}`}>
+                  {sale.paymentStatus === "paid" ? "PAYÉ" : "EN ATTENTE"}
+                </span>
+                <span className="sales-amount">{formatCFA(sale.amount)}</span>
+                {sale.paymentStatus !== "paid" && (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmPayment(sale)}>
+                    Marquer payé
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => onAdminCancel(sale)}>
+                  Annuler
+                </button>
+              </div>
             </div>
           ))
         )}
       </div>
+
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <CalendarDays size={18} color="#c4b5fd" />
+          DEMANDES ÉVÉNEMENTS
+        </div>
+
+        {eventBookings.length === 0 ? (
+          <p className="muted">Aucune demande d'événement.</p>
+        ) : (
+          eventBookings.map((ev) => (
+            <div key={ev.id} className="list-row" style={{ alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
+                  <strong>{ev.customer_name || "Client"}</strong>
+                  <span className="muted">·</span>
+                  <span className="muted">{ev.phone}</span>
+                  <span className={`tag ${ev.status === "confirmed" ? "tag-green" : ev.status === "cancelled" ? "tag-red" : "tag-amber"}`}>
+                    {ev.status === "confirmed" ? "CONFIRMÉ" : ev.status === "cancelled" ? "ANNULÉ" : "EN ATTENTE"}
+                  </span>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  📅 {ev.event_date} à {ev.start_time} · 👥 {ev.guest_count} pers. · ⏱ {ev.duration_hours}h · 🚗 {ev.distance_km} km
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>📍 {ev.location_description}</div>
+                {ev.notes && <div className="muted" style={{ fontSize: 12 }}>📝 {ev.notes}</div>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                <strong style={{ color: "var(--accent)", whiteSpace: "nowrap" }}>{formatCFA(ev.total_price)}</strong>
+                {ev.status === "pending" && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmEvent(ev.id)}>
+                      Confirmer
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => onCancelEvent(ev.id)}>
+                      Refuser
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <PromoCodesSection />
 
       <div className="card admin-card-soft">
         <div className="orbitron admin-section-title">
@@ -1531,6 +2377,9 @@ export default function App() {
   const [rawUsers, setRawUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [eventBookings, setEventBookings] = useState([]);
+  const [rescheduleDraft, setRescheduleDraft] = useState(null);
+  const [adminSlotDraft, setAdminSlotDraft] = useState(null);
   const [authModal, setAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [forgotModal, setForgotModal] = useState(false);
@@ -1588,6 +2437,12 @@ export default function App() {
       const bookingItems = (bookingsData || []).flatMap(expandBookingRow);
       const blockedItems = (blockedData || []).flatMap(expandBlockedRow);
       setBookings([...bookingItems, ...blockedItems]);
+
+      const { data: eventsData } = await supabase
+        .from("event_bookings")
+        .select("*")
+        .order("created_at", { ascending: false });
+      setEventBookings(eventsData || []);
 
       if (currentUser?.isAdmin) {
         const { data: usersData } = await supabase.from("users").select("*").order("created_at", { ascending: false });
@@ -1861,11 +2716,12 @@ export default function App() {
     }
   }
 
-  async function confirmBooking() {
+  async function confirmBooking(promoResult = null, finalAmount = null) {
     if (!bookingDraft || !user) return;
 
     const start = combineDateAndTime(bookingDraft.dateStr, bookingDraft.time);
     const end = addMinutes(start, bookingDraft.durationMinutes);
+    const price = finalAmount !== null ? finalAmount : bookingDraft.amount;
 
     const { error } = await supabase.from("bookings").insert({
       user_id: user.id,
@@ -1874,8 +2730,10 @@ export default function App() {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       duration: bookingDraft.durationMinutes,
-      price: bookingDraft.amount,
+      price,
       status: "confirmed",
+      payment_status: "pending",
+      promo_code: promoResult?.code || null,
     });
 
     if (error) {
@@ -1883,9 +2741,29 @@ export default function App() {
       return;
     }
 
+    if (promoResult?.id) {
+      await supabase.rpc("increment_promo_uses", { promo_id: promoResult.id });
+    }
+
+    const draft = { ...bookingDraft };
     setBookingDraft(null);
     await loadData(user);
     addToast("Réservation confirmée.");
+
+    const msg = [
+      `✅ *Nouvelle réservation — Jeux Dia VR*`,
+      `👤 Nom : ${user.name}`,
+      `📞 Téléphone : ${user.phone}`,
+      `📅 Date : ${draft.dateStr}`,
+      `🕐 Heure : ${draft.time}`,
+      `⏱ Durée : ${draft.durationMinutes >= 60 ? "1 heure" : "15 min"}`,
+      `💰 Montant : ${price > 0 ? price.toLocaleString("fr-FR") + " CFA" : "0 CFA (Membre)"}`,
+      promoResult ? `🎟 Code promo : ${promoResult.code}` : "",
+      ``,
+      `Merci de confirmer le paiement à l'arrivée.`,
+    ].filter(Boolean).join("\n");
+
+    window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
   }
 
   async function confirmBlock(reason) {
@@ -1937,6 +2815,187 @@ export default function App() {
     addToast("Créneau débloqué.");
   }
 
+  async function handleAdminBookOverride(form) {
+    if (!adminSlotDraft) return;
+    const { dateStr, time } = adminSlotDraft;
+    const start = combineDateAndTime(dateStr, time);
+    const end = addMinutes(start, form.duration);
+
+    const { error } = await supabase.from("bookings").insert({
+      user_id: user.id,
+      customer_name: form.name,
+      phone: form.phone,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration: form.duration,
+      price: form.price,
+      status: "confirmed",
+      payment_status: "pending",
+    });
+
+    if (error) { addToast(error.message, "error"); return; }
+
+    await logAdminAction("MANUAL_BOOKING", "bookings", null, { name: form.name, phone: form.phone, dateStr, time });
+    setAdminSlotDraft(null);
+    await loadData(user);
+    addToast(`Réservation créée pour ${form.name}.`);
+  }
+
+  async function handleConfirmEvent(id) {
+    const { error } = await supabase.from("event_bookings").update({ status: "confirmed" }).eq("id", id);
+    if (error) { addToast(error.message, "error"); return; }
+    await logAdminAction("CONFIRM_EVENT", "event_bookings", id, {});
+    await loadData(user);
+    addToast("Événement confirmé.");
+  }
+
+  async function handleCancelEvent(id) {
+    const { error } = await supabase.from("event_bookings").update({ status: "cancelled" }).eq("id", id);
+    if (error) { addToast(error.message, "error"); return; }
+    await logAdminAction("CANCEL_EVENT", "event_bookings", id, {});
+    await loadData(user);
+    addToast("Événement refusé.", "info");
+  }
+
+  async function handleSubmitEvent(form) {
+    if (!user) return;
+
+    const { error } = await supabase.from("event_bookings").insert({
+      user_id: user.id,
+      customer_name: user.name,
+      phone: user.phone,
+      event_date: form.eventDate,
+      start_time: form.startTime,
+      guest_count: form.guests,
+      duration_hours: form.hours,
+      distance_km: form.distanceKm,
+      location_description: form.location,
+      notes: form.notes,
+      total_price: form.total,
+      status: "pending",
+    });
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    addToast("Demande envoyée ! Nous vous contactons sous 24h.");
+    setPage("calendar");
+
+    const msg = [
+      `🎉 *Demande d'événement VR — Jeux Dia*`,
+      `👤 ${user.name} | 📞 ${user.phone}`,
+      `📅 Date : ${form.eventDate} à ${form.startTime}`,
+      `👥 Invités : ${form.guests} personnes`,
+      `⏱ Durée : ${form.hours}h`,
+      `📍 Lieu : ${form.location}`,
+      `🚗 Distance : ${form.distanceKm} km`,
+      `💰 Devis total : ${formatCFA(form.total)}`,
+      form.notes ? `📝 Notes : ${form.notes}` : "",
+    ].filter(Boolean).join("\n");
+
+    window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+  }
+
+  async function handleReschedule({ dateStr, time }) {
+    if (!rescheduleDraft) return;
+    const start = combineDateAndTime(dateStr, time);
+    const end = addMinutes(start, rescheduleDraft.durationMinutes);
+
+    const { error } = await supabase
+      .from("bookings")
+      .update({
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+      })
+      .eq("id", rescheduleDraft.sourceId);
+
+    if (error) { addToast(error.message, "error"); return; }
+
+    setRescheduleDraft(null);
+    await loadData(user);
+    addToast("Réservation modifiée.");
+  }
+
+  async function handleSaveProfile(form) {
+    if (!form.name || !form.phone) {
+      addToast("Nom et téléphone requis.", "error");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update({ full_name: form.name, phone: form.phone })
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    setUser(makeUser(data));
+    addToast("Profil mis à jour.");
+  }
+
+  async function handleCancelBooking(booking) {
+    const { error } = await supabase
+      .from("bookings")
+      .delete()
+      .eq("id", booking.sourceId);
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    await loadData(user);
+    addToast("Réservation annulée.", "info");
+  }
+
+  async function handleAdminCancelBooking(booking) {
+    const { error } = await supabase
+      .from("bookings")
+      .delete()
+      .eq("id", booking.sourceId);
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    await logAdminAction("CANCEL_BOOKING", "bookings", booking.sourceId, {
+      customer: booking.name,
+      date: booking.dateStr,
+      time: booking.time,
+    });
+
+    await loadData(user);
+    addToast(`Réservation annulée — ${booking.name}.`, "info");
+  }
+
+  async function handleConfirmPayment(booking) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ payment_status: "paid" })
+      .eq("id", booking.sourceId);
+
+    if (error) {
+      addToast(error.message, "error");
+      return;
+    }
+
+    await logAdminAction("CONFIRM_PAYMENT", "bookings", booking.sourceId, {
+      customer: booking.name,
+      amount: booking.amount,
+    });
+
+    await loadData(user);
+    addToast(`Paiement confirmé — ${booking.name}`);
+  }
+
   async function handleActivateMembership() {
     if (!user) return;
 
@@ -1986,6 +3045,7 @@ export default function App() {
       ]
     : [
         { id: "calendar", label: "Réserver" },
+        { id: "events", label: "Événements" },
         { id: "membership", label: "Membership" },
         ...(user ? [{ id: "profile", label: "Profil" }] : []),
       ];
@@ -2091,22 +3151,32 @@ export default function App() {
               addToast={addToast}
               onOpenBooking={setBookingDraft}
               onOpenBlock={(dateStr, time) => setBlockDraft({ dateStr, time })}
+              onOpenAdminSlot={(dateStr, time) => setAdminSlotDraft({ dateStr, time })}
             />
+          )}
+
+          {page === "events" && (
+            <EventsPage user={user} onSubmit={handleSubmitEvent} />
           )}
 
           {page === "membership" && (
             <MembershipPage user={user} onActivate={handleActivateMembership} />
           )}
 
-          {page === "profile" && user && <ProfilePage user={user} bookings={bookings} />}
+          {page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} />}
 
           {page === "admin" && user?.isAdmin && (
             <AdminDashboard
               users={rawUsers}
               bookings={bookings}
               logs={logs}
+              eventBookings={eventBookings}
               onEditUser={setEditUser}
               onUnblock={handleUnblock}
+              onConfirmPayment={handleConfirmPayment}
+              onAdminCancel={handleAdminCancelBooking}
+              onConfirmEvent={handleConfirmEvent}
+              onCancelEvent={handleCancelEvent}
             />
           )}
         </main>
@@ -2214,6 +3284,25 @@ export default function App() {
             userData={editUser}
             onClose={() => setEditUser(null)}
             onSave={handleSaveUserEdit}
+          />
+        )}
+
+        {adminSlotDraft && (
+          <AdminSlotModal
+            dateStr={adminSlotDraft.dateStr}
+            time={adminSlotDraft.time}
+            onClose={() => setAdminSlotDraft(null)}
+            onBlock={(reason) => { const slot = adminSlotDraft; setAdminSlotDraft(null); setBlockDraft(slot); }}
+            onBook={handleAdminBookOverride}
+          />
+        )}
+
+        {rescheduleDraft && (
+          <RescheduleModal
+            booking={rescheduleDraft}
+            bookings={bookings}
+            onClose={() => setRescheduleDraft(null)}
+            onConfirm={handleReschedule}
           />
         )}
 
