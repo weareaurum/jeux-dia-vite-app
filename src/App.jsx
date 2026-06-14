@@ -2412,7 +2412,7 @@ export default function App() {
   const [eventBookings, setEventBookings] = useState([]);
   const [rescheduleDraft, setRescheduleDraft] = useState(null);
   const [adminSlotDraft, setAdminSlotDraft] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [authModal, setAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [forgotModal, setForgotModal] = useState(false);
