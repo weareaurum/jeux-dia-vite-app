@@ -10,7 +10,19 @@ import {
   ShieldBan,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import logoImg from "./assets/jdlo.png";
+import jdLogo from "./assets/jdlo.png";
+
+function LogoMark({ size = 64, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <img src={jdLogo} alt="Jeux Dia" width={size} height={size} style={{ objectFit: "contain", display: "block", background: "transparent" }} />
+    </button>
+  );
+}
 
 const TIME_SLOTS = [
   "09:00","09:20","09:40","10:00","10:20","10:40","11:00","11:20","11:40",
@@ -46,9 +58,15 @@ class ErrorBoundary extends React.Component {
       return (
         <div style={{ padding: 24, color: "white", background: "#050810", minHeight: "100vh" }}>
           <h2>Une erreur est survenue.</h2>
-          <pre style={{ whiteSpace: "pre-wrap" }}>
+          <pre style={{ whiteSpace: "pre-wrap", color: "#fca5a5" }}>
             {this.state.error?.message || "Erreur inconnue"}
           </pre>
+          <button
+            style={{ marginTop: 16, padding: "10px 20px", background: "#00f5d4", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Réessayer
+          </button>
         </div>
       );
     }
@@ -154,10 +172,8 @@ function GlobalStyle() {
         font-weight: 700;
       }
 
-      .nav-item.active {
-        color: var(--accent);
-        background: rgba(0,245,212,0.08);
-      }
+      .nav-item:hover { color: var(--text); }
+      .nav-item.active { color: var(--accent); background: rgba(0,245,212,0.08); }
 
       .btn {
         border: none;
@@ -168,30 +184,23 @@ function GlobalStyle() {
         cursor: pointer;
       }
 
-      .btn-primary {
-        background: var(--accent);
-        color: #000;
-      }
-
-      .btn-ghost {
-        background: transparent;
-        color: var(--accent);
-        border: 1px solid var(--accent);
-      }
-
-      .btn-danger {
-        background: var(--danger);
-        color: white;
-      }
-
-      .btn-purple {
-        background: var(--accent2);
-        color: white;
-      }
-
-      .btn-sm {
-        padding: 8px 12px;
-        font-size: 12px;
+      .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .btn-primary { background: var(--accent); color: #000; }
+      .btn-primary:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+      .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+      .btn-ghost:hover:not(:disabled) { background: rgba(0,245,212,0.08); }
+      .btn-danger { background: var(--danger); color: white; }
+      .btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+      .btn-purple { background: var(--accent2); color: white; }
+      .btn-purple:hover:not(:disabled) { filter: brightness(1.1); }
+      .btn-sm { padding: 8px 12px; font-size: 12px; }
+      .spinner {
+        width: 48px; height: 48px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 20px auto;
       }
 
       .hero, .card {
@@ -672,7 +681,7 @@ function AuthModal({
     <Modal onClose={onClose}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
         <div className="logo-btn" style={{ width: 110, height: 110, cursor: "default" }}>
-          <img src={logoImg} alt="Jeux Dia" />
+          <img src={jdLogo} alt="Jeux Dia" />
         </div>
       </div>
 
@@ -1070,6 +1079,29 @@ function RescheduleModal({ booking, bookings, onClose, onConfirm }) {
         >
           Confirmer
         </button>
+      </div>
+    </Modal>
+  );
+}
+
+function BlockModal({ slot, onClose, onBlock }) {
+  const [reason, setReason] = useState("Maintenance");
+  return (
+    <Modal onClose={onClose}>
+      <h3 style={{ marginTop: 0, marginBottom: 8, color: "var(--danger)" }}>Bloquer ce créneau</h3>
+      <p style={{ color: "var(--accent)", fontFamily: "monospace", marginBottom: 16, fontSize: 13 }}>
+        {slot.dateStr} à {slot.time}
+      </p>
+      <label style={{ color: "var(--muted)", fontSize: 13, display: "block", marginBottom: 6 }}>Raison :</label>
+      <select value={reason} onChange={(e) => setReason(e.target.value)} style={{ marginBottom: 20 }}>
+        <option>Maintenance</option>
+        <option>Client walk-in cash</option>
+        <option>Nettoyage</option>
+        <option>Événement privé</option>
+      </select>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Annuler</button>
+        <button type="button" className="btn btn-danger" style={{ flex: 1 }} onClick={() => onBlock(reason)}>Bloquer ✗</button>
       </div>
     </Modal>
   );
@@ -3075,7 +3107,7 @@ export default function App() {
                 resetUiState();
               }}
             >
-              <img src={logoImg} alt="Jeux Dia" />
+              <img src={jdLogo} alt="Jeux Dia" />
             </button>
 
             <div className="nav">
@@ -3090,9 +3122,16 @@ export default function App() {
               ))}
 
               {user ? (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={handleLogout}>
-                  Sortir
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 4 }}>
+                  <div
+                    style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent2), var(--accent))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, cursor: "pointer", flexShrink: 0, color: "#000" }}
+                    onClick={() => setPage(user.isAdmin ? "admin" : "profile")}
+                    title={user.name}
+                  >
+                    {(user.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={handleLogout}>Sortir</button>
+                </div>
               ) : (
                 <button
                   type="button"
@@ -3110,14 +3149,23 @@ export default function App() {
         </header>
 
         <main className="container" style={{ paddingTop: 24, paddingBottom: 90 }}>
-          {!user && page === "calendar" && (
-            <div className="hero">
-              <div className="tag tag-cyan">OUVERT</div>
-              <h1 className="orbitron" style={{ fontSize: 34, lineHeight: 1.1, marginBottom: 10 }}>
-                Vivez la réalité <span className="accent">virtuelle</span> à Lomé
+          {loading && (
+            <div style={{ textAlign: "center", padding: "60px 0" }}>
+              <div className="spinner" />
+              <p className="muted">Chargement…</p>
+            </div>
+          )}
+          {!loading && !user && page === "calendar" && (
+            <div className="hero" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(0,245,212,0.08))", borderColor: "rgba(124,58,237,0.3)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span className="tag tag-cyan">OUVERT</span>
+                <span className="muted" style={{ fontSize: 11, fontFamily: "monospace" }}>09:00 – 20:40 · 7j/7</span>
+              </div>
+              <h1 className="orbitron" style={{ fontSize: 30, lineHeight: 1.15, marginBottom: 10, marginTop: 0 }}>
+                Vivez la réalité<br /><span className="accent">virtuelle</span> à Lomé
               </h1>
-              <p className="muted" style={{ marginBottom: 18 }}>
-                Réservez votre session VR en ligne.
+              <p className="muted" style={{ marginBottom: 20, fontSize: 15 }}>
+                Réservez votre session VR en ligne. Payez par T-Money ou Flooz.
               </p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
@@ -3144,7 +3192,7 @@ export default function App() {
             </div>
           )}
 
-          {page === "calendar" && (
+          {!loading && page === "calendar" && (
             <CalendarView
               user={user}
               bookings={bookings}
@@ -3155,17 +3203,17 @@ export default function App() {
             />
           )}
 
-          {page === "events" && (
+          {!loading && page === "events" && (
             <EventsPage user={user} onSubmit={handleSubmitEvent} />
           )}
 
-          {page === "membership" && (
+          {!loading && page === "membership" && (
             <MembershipPage user={user} onActivate={handleActivateMembership} />
           )}
 
-          {page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} />}
+          {!loading && page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} />}
 
-          {page === "admin" && user?.isAdmin && (
+          {!loading && page === "admin" && user?.isAdmin && (
             <AdminDashboard
               users={rawUsers}
               bookings={bookings}
@@ -3257,26 +3305,11 @@ export default function App() {
         )}
 
         {blockDraft && (
-          <Modal onClose={() => setBlockDraft(null)}>
-            <h3 style={{ marginTop: 0 }}>Bloquer ce créneau</h3>
-            <p className="muted">
-              {blockDraft.dateStr} à {blockDraft.time}
-            </p>
-            <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Maintenance")}>
-                Maintenance
-              </button>
-              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Événement privé")}>
-                Événement privé
-              </button>
-              <button type="button" className="btn btn-danger" onClick={() => confirmBlock("Nettoyage")}>
-                Nettoyage
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => setBlockDraft(null)}>
-                Annuler
-              </button>
-            </div>
-          </Modal>
+          <BlockModal
+            slot={blockDraft}
+            onClose={() => setBlockDraft(null)}
+            onBlock={confirmBlock}
+          />
         )}
 
         {editUser && (
