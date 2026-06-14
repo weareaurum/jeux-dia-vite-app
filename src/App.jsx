@@ -2483,6 +2483,495 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
   );
 }
 
+// ─── TOURNAMENT COMPONENTS ───────────────────────────────────────────────────
+
+function TournamentStatusBadge({ status }) {
+  const map = {
+    upcoming: { label: "À venir", cls: "tag-cyan" },
+    active:   { label: "En cours", cls: "tag-green" },
+    completed:{ label: "Terminé", cls: "tag-purple" },
+    cancelled:{ label: "Annulé", cls: "tag-red" },
+  };
+  const s = map[status] || map.upcoming;
+  return <span className={`tag ${s.cls}`}>{s.label}</span>;
+}
+
+function TournamentCard({ t, onSelect }) {
+  return (
+    <div
+      className="card"
+      onClick={() => onSelect(t)}
+      style={{ cursor: "pointer", transition: "border-color 0.18s", borderColor: "var(--border)" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
+      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
+    >
+      {t.image_url && (
+        <img src={t.image_url} alt={t.title} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10, marginBottom: 12 }} />
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+        <strong style={{ fontSize: 16 }}>{t.title}</strong>
+        <TournamentStatusBadge status={t.status} />
+      </div>
+      {t.game && <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>🎮 {t.game}</p>}
+      {t.start_date && (
+        <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          📅 {new Date(t.start_date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        {t.entry_fee > 0 ? (
+          <span className="tag tag-amber">🏆 {t.entry_fee.toLocaleString("fr-FR")} CFA</span>
+        ) : (
+          <span className="tag tag-green">Gratuit</span>
+        )}
+        {t.max_participants && (
+          <span className="muted" style={{ fontSize: 12 }}>Max {t.max_participants} joueurs</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RegisterTournamentModal({ tournament, user, onClose, onRegistered }) {
+  const [nickname, setNickname] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [network, setNetwork] = React.useState("tmoney");
+  const [loading, setLoading] = React.useState(false);
+  const [paid, setPaid] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const hasFee = tournament.entry_fee > 0;
+
+  async function handleSubmit() {
+    if (!nickname.trim()) { setErr("Entrez votre pseudo gamer."); return; }
+    if (hasFee && !phone.trim()) { setErr("Entrez votre numéro de téléphone."); return; }
+    setLoading(true); setErr("");
+    try {
+      if (hasFee) {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/register-tournament`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tournamentId: tournament.id,
+              userId: user.id,
+              nickname: nickname.trim(),
+              amount: tournament.entry_fee,
+              phone: phone.trim(),
+              network,
+            }),
+          }
+        );
+        const data = await res.json();
+        if (!res.ok || data.error) { setErr(data.error ?? "Erreur paiement."); setLoading(false); return; }
+        setPaid(true);
+        setTimeout(() => { onRegistered(); onClose(); }, 2500);
+      } else {
+        const { error } = await supabase.from("tournament_registrations").insert({
+          tournament_id: tournament.id,
+          user_id: user.id,
+          gamer_nickname: nickname.trim(),
+          payment_status: "free",
+        });
+        if (error) { setErr(error.message); setLoading(false); return; }
+        onRegistered();
+        onClose();
+      }
+    } catch (_e) {
+      setErr("Erreur réseau. Réessayez.");
+      setLoading(false);
+    }
+  }
+
+  if (paid) return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>📱</div>
+        <h3 className="orbitron" style={{ color: "var(--accent)", marginTop: 0 }}>Notification envoyée !</h3>
+        <p className="muted">Approbation de paiement requise sur votre téléphone.</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <strong style={{ fontSize: 18 }}>S'inscrire — {tournament.title}</strong>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ display: "grid", gap: 14 }}>
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Pseudo Gamer *</label>
+            <input value={nickname} onChange={e => setNickname(e.target.value)} placeholder="MonPseudo123" />
+          </div>
+          {hasFee && (
+            <>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>Réseau de paiement</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[{ id: "tmoney", label: "T-Money" }, { id: "flooz", label: "Flooz" }].map(n => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      className={`btn btn-sm ${network === n.id ? "btn-primary" : "btn-ghost"}`}
+                      onClick={() => setNetwork(n.id)}
+                      style={{ flex: 1 }}
+                    >
+                      {n.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Téléphone *</label>
+                <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="9XXXXXXX" type="tel" />
+              </div>
+            </>
+          )}
+          {err && <p style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>{err}</p>}
+          <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Annuler</button>
+            <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={loading} style={{ flex: 1 }}>
+              {loading ? "…" : hasFee ? `Payer ${tournament.entry_fee.toLocaleString("fr-FR")} CFA` : "S'inscrire"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentFeed({ tournament, user, registrations }) {
+  const [posts, setPosts] = React.useState([]);
+  const [content, setContent] = React.useState("");
+  const [imgUrl, setImgUrl] = React.useState("");
+  const [videoUrl, setVideoUrl] = React.useState("");
+  const [posting, setPosting] = React.useState(false);
+  const myReg = registrations.find(r => r.user_id === user?.id);
+
+  React.useEffect(() => {
+    if (!tournament) return;
+    supabase.from("tournament_posts")
+      .select("*, author:author_id(full_name)")
+      .eq("tournament_id", tournament.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setPosts(data || []));
+  }, [tournament?.id]);
+
+  async function handlePost() {
+    if (!content.trim() && !imgUrl.trim() && !videoUrl.trim()) return;
+    setPosting(true);
+    const { data, error } = await supabase.from("tournament_posts").insert({
+      tournament_id: tournament.id,
+      author_id: user.id,
+      content: content.trim() || null,
+      image_url: imgUrl.trim() || null,
+      video_url: videoUrl.trim() || null,
+      is_admin_post: user.isAdmin,
+    }).select("*, author:author_id(full_name)").single();
+    setPosting(false);
+    if (!error && data) {
+      setPosts(p => [data, ...p]);
+      setContent(""); setImgUrl(""); setVideoUrl("");
+    }
+  }
+
+  async function handleDelete(postId) {
+    await supabase.from("tournament_posts").delete().eq("id", postId);
+    setPosts(p => p.filter(x => x.id !== postId));
+  }
+
+  const canPost = myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid");
+
+  return (
+    <div>
+      <h3 style={{ color: "var(--accent)", marginBottom: 16 }}>📣 Feed Participants</h3>
+      {canPost && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder="Message pour les participants…"
+            rows={3}
+            style={{ width: "100%", padding: "10px 13px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", font: "inherit", resize: "vertical", boxSizing: "border-box" }}
+          />
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            <input value={imgUrl} onChange={e => setImgUrl(e.target.value)} placeholder="URL image (optionnel)" />
+            <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="URL vidéo (optionnel)" />
+          </div>
+          <button type="button" className="btn btn-primary" style={{ marginTop: 10, width: "100%" }} onClick={handlePost} disabled={posting}>
+            {posting ? "…" : "Publier"}
+          </button>
+        </div>
+      )}
+      {posts.length === 0 && (
+        <p className="muted" style={{ textAlign: "center", padding: "30px 0" }}>Aucune publication pour l'instant.</p>
+      )}
+      {posts.map(post => (
+        <div key={post.id} className="card" style={{ borderColor: post.is_admin_post ? "rgba(0,245,212,0.3)" : "var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,var(--accent2),var(--accent))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#000" }}>
+                {(post.author?.full_name || "?").charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <strong style={{ fontSize: 13 }}>{post.author?.full_name || "Joueur"}</strong>
+                {post.is_admin_post && <span className="tag tag-cyan" style={{ marginLeft: 6, fontSize: 10 }}>Admin</span>}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="muted" style={{ fontSize: 11 }}>{new Date(post.created_at).toLocaleDateString("fr-FR")}</span>
+              {(user?.isAdmin || post.author_id === user?.id) && (
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => handleDelete(post.id)}>✕</button>
+              )}
+            </div>
+          </div>
+          {post.content && <p style={{ margin: "8px 0", fontSize: 14 }}>{post.content}</p>}
+          {post.image_url && <img src={post.image_url} alt="" style={{ width: "100%", borderRadius: 10, marginTop: 8, maxHeight: 400, objectFit: "cover" }} />}
+          {post.video_url && (
+            <video src={post.video_url} controls style={{ width: "100%", borderRadius: 10, marginTop: 8 }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TournamentDetail({ tournament, user, onBack }) {
+  const [registrations, setRegistrations] = React.useState([]);
+  const [showRegModal, setShowRegModal] = React.useState(false);
+  const myReg = registrations.find(r => r.user_id === user?.id);
+  const isRegistered = myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid");
+
+  React.useEffect(() => {
+    supabase.from("tournament_registrations")
+      .select("*")
+      .eq("tournament_id", tournament.id)
+      .then(({ data }) => setRegistrations(data || []));
+  }, [tournament.id]);
+
+  function handleRegistered() {
+    supabase.from("tournament_registrations")
+      .select("*")
+      .eq("tournament_id", tournament.id)
+      .then(({ data }) => setRegistrations(data || []));
+  }
+
+  const paidCount = registrations.filter(r => r.payment_status === "paid" || r.payment_status === "free").length;
+
+  return (
+    <div>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>← Retour</button>
+      <div className="card">
+        {tournament.image_url && (
+          <img src={tournament.image_url} alt={tournament.title} style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 10, marginBottom: 16 }} />
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          <h2 className="orbitron" style={{ margin: 0, fontSize: 22 }}>{tournament.title}</h2>
+          <TournamentStatusBadge status={tournament.status} />
+        </div>
+        {tournament.game && <p className="muted" style={{ marginBottom: 8 }}>🎮 {tournament.game}</p>}
+        {tournament.description && <p style={{ fontSize: 14, marginBottom: 16 }}>{tournament.description}</p>}
+        <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+          {tournament.start_date && (
+            <div className="muted" style={{ fontSize: 13 }}>
+              📅 Début: {new Date(tournament.start_date).toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
+          {tournament.prize_pool && <div className="muted" style={{ fontSize: 13 }}>🏆 Prix: {tournament.prize_pool}</div>}
+          <div className="muted" style={{ fontSize: 13 }}>👥 Inscrits: {paidCount}{tournament.max_participants ? ` / ${tournament.max_participants}` : ""}</div>
+          <div className="muted" style={{ fontSize: 13 }}>
+            💰 Inscription: {tournament.entry_fee > 0 ? `${tournament.entry_fee.toLocaleString("fr-FR")} CFA` : "Gratuite"}
+          </div>
+        </div>
+        {user && !isRegistered && tournament.status === "upcoming" && (
+          <button type="button" className="btn btn-primary" style={{ width: "100%" }} onClick={() => setShowRegModal(true)}>
+            S'inscrire
+          </button>
+        )}
+        {isRegistered && (
+          <div style={{ padding: "12px 16px", borderRadius: 10, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7", textAlign: "center" }}>
+            ✅ Vous êtes inscrit(e) — <strong>{myReg.gamer_nickname}</strong>
+          </div>
+        )}
+        {!user && (
+          <p className="muted" style={{ textAlign: "center", fontSize: 13 }}>Connectez-vous pour vous inscrire.</p>
+        )}
+      </div>
+      {isRegistered && (
+        <TournamentFeed tournament={tournament} user={user} registrations={registrations} />
+      )}
+      {showRegModal && (
+        <RegisterTournamentModal
+          tournament={tournament}
+          user={user}
+          onClose={() => setShowRegModal(false)}
+          onRegistered={handleRegistered}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateTournamentModal({ onClose, onCreated }) {
+  const [form, setForm] = React.useState({
+    title: "", game: "", description: "", entry_fee: 0,
+    max_participants: "", prize_pool: "", image_url: "",
+    start_date: "", end_date: "", status: "upcoming",
+  });
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState("");
+
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
+  async function handleCreate() {
+    if (!form.title.trim()) { setErr("Titre requis."); return; }
+    setLoading(true);
+    const payload = {
+      title: form.title.trim(),
+      game: form.game.trim() || null,
+      description: form.description.trim() || null,
+      entry_fee: Number(form.entry_fee) || 0,
+      max_participants: form.max_participants ? Number(form.max_participants) : null,
+      prize_pool: form.prize_pool.trim() || null,
+      image_url: form.image_url.trim() || null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      status: form.status,
+    };
+    const { error } = await supabase.from("tournaments").insert(payload);
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    onCreated();
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ width: "min(100%,560px)", maxHeight: "90vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <strong style={{ fontSize: 18 }}>Créer un tournoi</strong>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ display: "grid", gap: 14 }}>
+          {[
+            { label: "Titre *", key: "title", placeholder: "Nom du tournoi" },
+            { label: "Jeu", key: "game", placeholder: "Ex: Beat Saber, Pistol Whip…" },
+            { label: "URL Image", key: "image_url", placeholder: "https://…" },
+            { label: "Prix / Lot", key: "prize_pool", placeholder: "Ex: 25 000 CFA + trophée" },
+          ].map(f => (
+            <div key={f.key}>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{f.label}</label>
+              <input value={form[f.key]} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} />
+            </div>
+          ))}
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Description</label>
+            <textarea
+              value={form.description}
+              onChange={e => set("description", e.target.value)}
+              rows={3}
+              style={{ width: "100%", padding: "10px 13px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", font: "inherit", resize: "vertical", boxSizing: "border-box" }}
+            />
+          </div>
+          <div className="grid-2">
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Frais d'inscription (CFA)</label>
+              <input type="number" min={0} value={form.entry_fee} onChange={e => set("entry_fee", e.target.value)} />
+            </div>
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Max participants</label>
+              <input type="number" min={2} value={form.max_participants} onChange={e => set("max_participants", e.target.value)} placeholder="Illimité" />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Date de début</label>
+              <input type="datetime-local" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
+            </div>
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Date de fin</label>
+              <input type="datetime-local" value={form.end_date} onChange={e => set("end_date", e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Statut</label>
+            <select value={form.status} onChange={e => set("status", e.target.value)}>
+              <option value="upcoming">À venir</option>
+              <option value="active">En cours</option>
+              <option value="completed">Terminé</option>
+              <option value="cancelled">Annulé</option>
+            </select>
+          </div>
+          {err && <p style={{ color: "var(--danger)", fontSize: 13, margin: 0 }}>{err}</p>}
+          <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Annuler</button>
+            <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={loading} style={{ flex: 1 }}>
+              {loading ? "…" : "Créer"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentsPage({ user }) {
+  const [tournaments, setTournaments] = React.useState([]);
+  const [selected, setSelected] = React.useState(null);
+  const [showCreate, setShowCreate] = React.useState(false);
+
+  async function loadTournaments() {
+    const { data } = await supabase.from("tournaments").select("*").order("start_date", { ascending: true });
+    setTournaments(data || []);
+  }
+
+  React.useEffect(() => { loadTournaments(); }, []);
+
+  if (selected) {
+    return <TournamentDetail tournament={selected} user={user} onBack={() => setSelected(null)} />;
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <h2 className="orbitron" style={{ margin: 0 }}>
+          🏆 <span className="accent">TOURNOIS</span>
+        </h2>
+        {user?.isAdmin && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
+            + Créer un tournoi
+          </button>
+        )}
+      </div>
+      {tournaments.length === 0 && (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <p className="muted">Aucun tournoi pour l'instant.</p>
+          {user?.isAdmin && (
+            <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowCreate(true)}>
+              Créer le premier tournoi
+            </button>
+          )}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 0 }}>
+        {tournaments.map(t => (
+          <TournamentCard key={t.id} t={t} onSelect={setSelected} />
+        ))}
+      </div>
+      {showCreate && (
+        <CreateTournamentModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { loadTournaments(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function App() {
   const [page, setPage] = useState("calendar");
   const [user, setUser] = useState(null);
@@ -3159,10 +3648,12 @@ export default function App() {
     ? [
         { id: "admin", label: "Dashboard" },
         { id: "calendar", label: "Calendrier" },
+        { id: "tournaments", label: "Tournois" },
       ]
     : [
         { id: "calendar", label: "Réserver" },
         { id: "events", label: "Événements" },
+        { id: "tournaments", label: "Tournois" },
         { id: "membership", label: "Membership" },
         ...(user ? [{ id: "profile", label: "Profil" }] : []),
       ];
@@ -3290,6 +3781,10 @@ export default function App() {
 
           {!loading && page === "events" && (
             <EventsPage user={user} onSubmit={handleSubmitEvent} />
+          )}
+
+          {!loading && page === "tournaments" && (
+            <TournamentsPage user={user} />
           )}
 
           {!loading && page === "membership" && (
