@@ -2412,6 +2412,7 @@ export default function App() {
   const [eventBookings, setEventBookings] = useState([]);
   const [rescheduleDraft, setRescheduleDraft] = useState(null);
   const [adminSlotDraft, setAdminSlotDraft] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [authModal, setAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [forgotModal, setForgotModal] = useState(false);
@@ -2463,6 +2464,7 @@ export default function App() {
         });
 
         addToast(realError, "error");
+        setLoading(false);
         return;
       }
 
@@ -2488,8 +2490,10 @@ export default function App() {
     } catch (err) {
       console.error("LOAD DATA CRASH", err);
       addToast(err?.message || "Erreur chargement données.", "error");
+    } finally {
+      setLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, setLoading]);
 
   const ensureUserProfile = useCallback(async (authUser) => {
     try {
@@ -2561,6 +2565,7 @@ export default function App() {
     } catch (err) {
       console.error("LOAD CURRENT USER CRASH", err);
       setUser(null);
+      setLoading(false);
     }
   }, [ensureUserProfile, loadData]);
 
