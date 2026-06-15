@@ -1693,38 +1693,71 @@ const EVENT_BASE_PRICE = 25000;
 const EVENT_EXTRA_PERSON = 2000;
 const EVENT_EXTRA_HOUR = 5000;
 const EVENT_DISTANCE_RATE = 5000; // per 10km
+// Adidogomé, Lomé, Togo
+const ADIDOGOME_LAT = 6.1750;
+const ADIDOGOME_LNG = 1.1550;
 
-function calcEventPrice(guests, hours) {
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calcEventPrice(guests, hours, distanceKm = 0) {
   const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
-  return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR;
+  const distanceFee = Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE;
+  return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
 }
 
 function EventsPage({ user, onSubmit }) {
   const today = new Date().toISOString().split("T")[0];
   const [form, setForm] = React.useState({
-    eventDate: "",
-    startTime: "09:00",
-    guests: 5,
-    hours: 4,
-    distanceKm: 0,
-    location: "",
-    notes: "",
+    eventDate: "", startTime: "09:00", guests: 5, hours: 4,
+    distanceKm: 0, location: "", notes: "",
   });
+  const [distanceKm, setDistanceKm] = React.useState(null); // null = not yet calculated
+  const [distanceLoading, setDistanceLoading] = React.useState(false);
+  const [distanceError, setDistanceError] = React.useState("");
+  const debounceRef = React.useRef(null);
 
-  const total = calcEventPrice(form.guests, form.hours);
   const extraGuests = Math.max(0, form.guests - EVENT_BASE_GUESTS);
-  const extraHours = Math.max(0, form.hours - EVENT_BASE_HOURS);
+  const extraHours  = Math.max(0, form.hours  - EVENT_BASE_HOURS);
+  const distanceFee = distanceKm != null ? Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE : 0;
+  const total = calcEventPrice(form.guests, form.hours, distanceKm ?? 0);
 
-  function set(key, val) {
-    setForm((f) => ({ ...f, [key]: val }));
-  }
+  function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+
+  // Auto-geocode address after user stops typing (800ms debounce)
+  React.useEffect(() => {
+    const addr = form.location.trim();
+    if (!addr) { setDistanceKm(null); setDistanceError(""); return; }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setDistanceLoading(true); setDistanceError("");
+      try {
+        const q = encodeURIComponent(`${addr}, Lomé, Togo`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
+          headers: { "Accept-Language": "fr" },
+        });
+        const results = await res.json();
+        if (!results.length) { setDistanceError("Adresse introuvable. Vérifiez et réessayez."); setDistanceKm(null); }
+        else {
+          const { lat, lon } = results[0];
+          const km = haversineKm(ADIDOGOME_LAT, ADIDOGOME_LNG, parseFloat(lat), parseFloat(lon));
+          setDistanceKm(Math.round(km * 10) / 10);
+        }
+      } catch (_) { setDistanceError("Impossible de calculer la distance. Réessayez."); setDistanceKm(null); }
+      setDistanceLoading(false);
+    }, 800);
+    return () => clearTimeout(debounceRef.current);
+  }, [form.location]);
 
   function handleSubmit() {
-    if (!user) return;
-    if (!form.eventDate) { return; }
-    if (!form.location.trim()) { return; }
-    onSubmit({ ...form, total });
+    if (!user || !form.eventDate || !form.location.trim()) return;
+    onSubmit({ ...form, distanceKm: distanceKm ?? 0, total });
   }
 
   return (
@@ -1740,51 +1773,23 @@ function EventsPage({ user, onSubmit }) {
 
       <div className="card">
         <strong style={{ display: "block", marginBottom: 16 }}>Configurer votre événement</strong>
-
         <div style={{ display: "grid", gap: 14 }}>
           <div>
             <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Date de l'événement</label>
-            <input
-              type="date"
-              className="input"
-              min={today}
-              value={form.eventDate}
-              onChange={(e) => set("eventDate", e.target.value)}
-            />
+            <input type="date" min={today} value={form.eventDate} onChange={(e) => set("eventDate", e.target.value)} />
           </div>
-
           <div>
             <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Heure de début</label>
-            <input
-              type="time"
-              className="input"
-              value={form.startTime}
-              onChange={(e) => set("startTime", e.target.value)}
-            />
+            <input type="time" value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
           </div>
-
           <div className="grid-2">
             <div>
               <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Nombre d'invités</label>
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={form.guests}
-                onChange={(e) => set("guests", Number(e.target.value))}
-                placeholder="Ex: 20"
-              />
+              <input type="number" min={1} max={200} value={form.guests} onChange={(e) => set("guests", Number(e.target.value))} placeholder="Ex: 20" />
             </div>
             <div>
               <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Durée (heures)</label>
-              <input
-                type="number"
-                min={1}
-                max={24}
-                value={form.hours}
-                onChange={(e) => set("hours", Number(e.target.value))}
-                placeholder="Ex: 4"
-              />
+              <input type="number" min={1} max={24} value={form.hours} onChange={(e) => set("hours", Number(e.target.value))} placeholder="Ex: 4" />
             </div>
           </div>
 
@@ -1795,22 +1800,35 @@ function EventsPage({ user, onSubmit }) {
               value={form.location}
               onChange={(e) => set("location", e.target.value)}
             />
+            {/* Distance feedback */}
             {form.location.trim() && (
-              <a
-                href={`https://www.google.com/maps/search/${encodeURIComponent(form.location + ", Lomé, Togo")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
-              >
-                📍 Voir sur Google Maps →
-              </a>
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                {distanceLoading && (
+                  <span className="muted" style={{ fontSize: 12 }}>📍 Calcul de la distance…</span>
+                )}
+                {!distanceLoading && distanceKm != null && (
+                  <span style={{ fontSize: 12, color: "#6ee7b7" }}>
+                    📍 {distanceKm} km depuis Adidogomé · Frais: {formatCFA(distanceFee)}
+                  </span>
+                )}
+                {!distanceLoading && distanceError && (
+                  <span style={{ fontSize: 12, color: "#fca5a5" }}>⚠ {distanceError}</span>
+                )}
+                <a
+                  href={`https://www.google.com/maps/search/${encodeURIComponent(form.location + ", Lomé, Togo")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
+                >
+                  Voir sur Maps →
+                </a>
+              </div>
             )}
           </div>
 
           <div>
             <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Notes (optionnel)</label>
             <input
-              className="input"
               placeholder="Ex: Anniversaire, thème souhaité..."
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}
@@ -1837,11 +1855,20 @@ function EventsPage({ user, onSubmit }) {
             <span>{formatCFA(extraHours * EVENT_EXTRA_HOUR)}</span>
           </div>
         )}
-        <div className="list-row" style={{ borderBottom: "none", marginTop: 8 }}>
-          <div>
-            <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
-            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Frais de déplacement calculés à la confirmation</div>
+        {distanceKm != null && distanceKm > 0 && (
+          <div className="list-row">
+            <span className="muted">🚗 Déplacement ({distanceKm} km depuis Adidogomé)</span>
+            <span>{formatCFA(distanceFee)}</span>
           </div>
+        )}
+        {distanceLoading && (
+          <div className="list-row">
+            <span className="muted">🚗 Calcul des frais de déplacement…</span>
+            <span className="muted">—</span>
+          </div>
+        )}
+        <div className="list-row" style={{ borderBottom: "none", marginTop: 8 }}>
+          <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
           <strong className="orbitron" style={{ fontSize: 20, color: "var(--accent)" }}>{formatCFA(total)}</strong>
         </div>
       </div>
@@ -1852,7 +1879,7 @@ function EventsPage({ user, onSubmit }) {
           className="btn btn-primary"
           style={{ width: "100%", padding: "14px" }}
           onClick={handleSubmit}
-          disabled={!form.eventDate || !form.location.trim()}
+          disabled={!form.eventDate || !form.location.trim() || distanceLoading}
         >
           Envoyer la demande →
         </button>
