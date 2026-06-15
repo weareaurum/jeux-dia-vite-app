@@ -2729,7 +2729,7 @@ function TournamentFeed({ tournament, user, registrations }) {
     setPosts(p => p.filter(x => x.id !== postId));
   }
 
-  const canPost = myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid");
+  const canPost = user?.isAdmin || (myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid"));
 
   return (
     <div>
@@ -2788,22 +2788,19 @@ function TournamentFeed({ tournament, user, registrations }) {
 function TournamentDetail({ tournament, user, onBack }) {
   const [registrations, setRegistrations] = React.useState([]);
   const [showRegModal, setShowRegModal] = React.useState(false);
+  const [showParticipants, setShowParticipants] = React.useState(false);
   const myReg = registrations.find(r => r.user_id === user?.id);
   const isRegistered = myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid");
+  const canSeeFeed = isRegistered || user?.isAdmin;
 
-  React.useEffect(() => {
+  function loadRegistrations() {
     supabase.from("tournament_registrations")
-      .select("*")
-      .eq("tournament_id", tournament.id)
-      .then(({ data }) => setRegistrations(data || []));
-  }, [tournament.id]);
-
-  function handleRegistered() {
-    supabase.from("tournament_registrations")
-      .select("*")
+      .select("*, user:user_id(full_name, email, phone)")
       .eq("tournament_id", tournament.id)
       .then(({ data }) => setRegistrations(data || []));
   }
+
+  React.useEffect(() => { loadRegistrations(); }, [tournament.id]);
 
   const paidCount = registrations.filter(r => r.payment_status === "paid" || r.payment_status === "free").length;
 
@@ -2832,7 +2829,12 @@ function TournamentDetail({ tournament, user, onBack }) {
             💰 Inscription: {tournament.entry_fee > 0 ? `${tournament.entry_fee.toLocaleString("fr-FR")} CFA` : "Gratuite"}
           </div>
         </div>
-        {user && !isRegistered && tournament.status === "upcoming" && (
+        {user?.isAdmin && (
+          <button type="button" className="btn btn-ghost" style={{ width: "100%", marginBottom: 8 }} onClick={() => setShowParticipants(v => !v)}>
+            👥 {showParticipants ? "Masquer" : "Voir"} les participants ({paidCount})
+          </button>
+        )}
+        {user && !isRegistered && !user.isAdmin && tournament.status === "upcoming" && (
           <button type="button" className="btn btn-primary" style={{ width: "100%" }} onClick={() => setShowRegModal(true)}>
             S'inscrire
           </button>
@@ -2846,7 +2848,30 @@ function TournamentDetail({ tournament, user, onBack }) {
           <p className="muted" style={{ textAlign: "center", fontSize: 13 }}>Connectez-vous pour vous inscrire.</p>
         )}
       </div>
-      {isRegistered && (
+
+      {/* Admin: participants list */}
+      {user?.isAdmin && showParticipants && (
+        <div className="card">
+          <strong style={{ display: "block", marginBottom: 12 }}>Liste des participants</strong>
+          {registrations.length === 0 && <p className="muted" style={{ fontSize: 13 }}>Aucun inscrit.</p>}
+          {registrations.map((r, i) => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < registrations.length - 1 ? "1px solid var(--border)" : "none" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,var(--accent2),var(--accent))", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: "#000", flexShrink: 0 }}>
+                {i + 1}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{r.gamer_nickname}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{r.user?.full_name || "—"} · {r.user?.email || r.user?.phone || ""}</div>
+              </div>
+              <span className={`tag ${r.payment_status === "paid" ? "tag-cyan" : r.payment_status === "free" ? "tag-green" : "tag-yellow"}`} style={{ fontSize: 11 }}>
+                {r.payment_status === "paid" ? "Payé" : r.payment_status === "free" ? "Gratuit" : "En attente"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canSeeFeed && (
         <TournamentFeed tournament={tournament} user={user} registrations={registrations} />
       )}
       {showRegModal && (
@@ -2854,7 +2879,7 @@ function TournamentDetail({ tournament, user, onBack }) {
           tournament={tournament}
           user={user}
           onClose={() => setShowRegModal(false)}
-          onRegistered={handleRegistered}
+          onRegistered={loadRegistrations}
         />
       )}
     </div>
