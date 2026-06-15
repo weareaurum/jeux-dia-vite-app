@@ -3190,56 +3190,49 @@ export default function App() {
     }
   }, []);
 
-  const loadCurrentUser = useCallback(async () => {
+  const loadCurrentUser = useCallback(async (authUser, { navigate = false } = {}) => {
     try {
-      const { data, error } = await supabase.auth.getSession();
-
-      if (error) {
-        console.error("GET SESSION ERROR", error);
-        setUser(null);
-        await loadData(null);
-        return;
+      let resolvedUser = authUser;
+      if (!resolvedUser) {
+        const { data, error } = await supabase.auth.getSession();
+        if (error || !data?.session?.user) { setUser(null); await loadData(null); return; }
+        resolvedUser = data.session.user;
       }
-
-      const authUser = data?.session?.user;
-
-      if (!authUser) {
-        setUser(null);
-        await loadData(null);
-        return;
-      }
-
-      const row = await ensureUserProfile(authUser);
-
-      const built = makeUser(
-        row || {
-          id: authUser.id,
-          full_name: authUser.user_metadata?.full_name || "Utilisateur",
-          email: authUser.email || "",
-          phone: authUser.user_metadata?.phone || "",
-          role: "customer",
-          is_member: false,
-          member_expiry: null,
-        }
-      );
-
+      const row = await ensureUserProfile(resolvedUser);
+      const built = makeUser(row || {
+        id: resolvedUser.id,
+        full_name: resolvedUser.user_metadata?.full_name || "Utilisateur",
+        email: resolvedUser.email || "",
+        phone: resolvedUser.user_metadata?.phone || "",
+        role: "customer",
+        is_member: false,
+        member_expiry: null,
+      });
       setUser(built);
       await loadData(built);
+      if (navigate) {
+        setPage(built.isAdmin ? "admin" : "calendar");
+        addToast("Connexion réussie.");
+      }
     } catch (err) {
       console.error("LOAD CURRENT USER CRASH", err);
       setUser(null);
       setLoading(false);
     }
-  }, [ensureUserProfile, loadData]);
+  }, [ensureUserProfile, loadData, addToast]);
 
   useEffect(() => {
     loadCurrentUser();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
         if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); return; }
-        await loadCurrentUser();
-        if (event === "PASSWORD_RECOVERY") setResetModal(true);
+        if (event === "PASSWORD_RECOVERY") { setResetModal(true); return; }
+        if (event === "SIGNED_IN") {
+          await loadCurrentUser(session?.user, { navigate: true });
+        } else if (event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+          if (session?.user) await loadCurrentUser(session.user);
+        }
       } catch (err) {
         console.error("AUTH STATE CHANGE CRASH", err);
       }
@@ -3262,53 +3255,22 @@ export default function App() {
 
   async function handleLogin(form) {
     try {
-      console.log("HANDLE LOGIN START", form);
-
       if (!form.email || !form.password) {
         addToast("Entrez votre email et mot de passe.", "error");
         return;
       }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: form.email.trim(),
         password: form.password,
       });
-
-      console.log("LOGIN RESULT FULL", { data, error });
-
       if (error) {
-        console.error("LOGIN ERROR FULL", error);
         addToast(error.message || "Connexion impossible.", "error");
         return;
       }
-
-      if (!data?.user) {
-        addToast("Aucun utilisateur trouvé.", "error");
-        return;
-      }
-
-      const row = await ensureUserProfile(data.user);
-
-      const built = makeUser(
-        row || {
-          id: data.user.id,
-          full_name: data.user.user_metadata?.full_name || "Utilisateur",
-          email: data.user.email || "",
-          phone: data.user.user_metadata?.phone || "",
-          role: "customer",
-          is_member: false,
-          member_expiry: null,
-        }
-      );
-
-      setUser(built);
+      // onAuthStateChange SIGNED_IN handles setUser, loadData, navigation, toast
       resetUiState();
-      setPage(built.isAdmin ? "admin" : "calendar");
-      await loadData(built);
-      addToast("Connexion réussie.");
     } catch (err) {
-      console.error("HANDLE LOGIN CRASH", err);
-      addToast(err?.message || "Erreur inattendue pendant la connexion.", "error");
+      addToast(err?.message || "Erreur inattendue.", "error");
     }
   }
 
