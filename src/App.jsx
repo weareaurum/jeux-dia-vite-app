@@ -3190,10 +3190,9 @@ export default function App() {
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
       try {
+        if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); return; }
         await loadCurrentUser();
-        if (event === "PASSWORD_RECOVERY") {
-          setResetModal(true);
-        }
+        if (event === "PASSWORD_RECOVERY") setResetModal(true);
       } catch (err) {
         console.error("AUTH STATE CHANGE CRASH", err);
       }
