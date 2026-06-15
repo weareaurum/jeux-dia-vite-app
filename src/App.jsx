@@ -674,13 +674,26 @@ function AuthModal({
 }) {
   const [tab, setTab] = useState(mode || "login");
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
+  const [submitting, setSubmitting] = useState(false);
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  async function submitLogin() {
+    if (submitting) return;
+    setSubmitting(true);
+    try { await onLogin(form); } finally { setSubmitting(false); }
+  }
+
+  async function submitRegister() {
+    if (submitting) return;
+    setSubmitting(true);
+    try { await onRegister(form); } finally { setSubmitting(false); }
+  }
+
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={submitting ? undefined : onClose}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
         <div className="logo-btn" style={{ width: 110, height: 110, cursor: "default" }}>
           <img src={jdLogo} alt="Jeux Dia" />
@@ -688,10 +701,10 @@ function AuthModal({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-        <button type="button" className={`btn ${tab === "login" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("login")}>
+        <button type="button" className={`btn ${tab === "login" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("login")} disabled={submitting}>
           Connexion
         </button>
-        <button type="button" className={`btn ${tab === "register" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("register")}>
+        <button type="button" className={`btn ${tab === "register" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1 }} onClick={() => setTab("register")} disabled={submitting}>
           Inscription
         </button>
       </div>
@@ -704,12 +717,15 @@ function AuthModal({
               placeholder="Email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
+              disabled={submitting}
             />
             <input
               type="password"
               placeholder="Mot de passe"
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
+              disabled={submitting}
+              onKeyDown={(e) => e.key === "Enter" && submitLogin()}
             />
           </div>
 
@@ -719,16 +735,17 @@ function AuthModal({
               className="btn"
               style={{ background: "none", color: "var(--accent)", padding: 0 }}
               onClick={onForgotPassword}
+              disabled={submitting}
             >
               Mot de passe oublié ?
             </button>
           </div>
 
           <div style={{ display: "grid", gap: 10 }}>
-            <button type="button" className="btn btn-primary" onClick={() => onLogin(form)}>
-              Se connecter →
+            <button type="button" className="btn btn-primary" onClick={submitLogin} disabled={submitting}>
+              {submitting ? "Connexion…" : "Se connecter →"}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin}>
+            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin} disabled={submitting}>
               Continuer avec Google
             </button>
           </div>
@@ -740,31 +757,36 @@ function AuthModal({
               placeholder="Nom complet"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
+              disabled={submitting}
             />
             <input
               placeholder="Téléphone"
               value={form.phone}
               onChange={(e) => update("phone", e.target.value)}
+              disabled={submitting}
             />
             <input
               type="email"
               placeholder="Email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
+              disabled={submitting}
             />
             <input
               type="password"
               placeholder="Mot de passe"
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
+              disabled={submitting}
+              onKeyDown={(e) => e.key === "Enter" && submitRegister()}
             />
           </div>
 
           <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
-            <button type="button" className="btn btn-primary" onClick={() => onRegister(form)}>
-              Créer mon compte →
+            <button type="button" className="btn btn-primary" onClick={submitRegister} disabled={submitting}>
+              {submitting ? "Création…" : "Créer mon compte →"}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin}>
+            <button type="button" className="btn btn-ghost" onClick={onGoogleLogin} disabled={submitting}>
               Continuer avec Google
             </button>
           </div>
