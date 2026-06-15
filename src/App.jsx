@@ -599,10 +599,12 @@ function expandBookingRow(row) {
     type: row.price > 0 ? "booked" : "member",
     name: row.customer_name,
     phone: row.phone,
+    userId: row.user_id,
     isPrimary: i === 0,
     amount: i === 0 ? row.price || 0 : 0,
     durationLabel: minutes >= 60 ? "1 heure" : "15 min",
     paymentStatus: row.payment_status || "pending",
+    paymentMethod: row.payment_method || null,
   }));
 
   const bufferTime = TIME_SLOTS[startIndex + slots];
@@ -861,7 +863,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   async function checkPromo() {
     if (!promoCode.trim()) return;
     setChecking(true); setPromoError(""); setPromoResult(null);
-    const { data, error } = await (await import("./lib/supabase")).supabase
+    const { data, error } = await supabase
       .from("promo_codes").select("*")
       .eq("code", promoCode.trim().toUpperCase()).eq("is_active", true).single();
     setChecking(false);
@@ -1189,9 +1191,9 @@ function BlockModal({ slot, onClose, onBlock }) {
 
 function AdminSlotModal({ dateStr, time, onClose, onBlock, onBook }) {
   const [mode, setMode] = React.useState(null); // "block" | "book"
-  const [blockReason, setBlockReason] = React.useState("");
+  const [blockReason, setBlockReason] = React.useState("Maintenance");
   const [bookForm, setBookForm] = React.useState({
-    name: "", phone: "", duration: 15, price: 1000,
+    name: "", phone: "", duration: 15, price: 1000, payment_method: "cash",
   });
 
   if (!mode) {
@@ -1215,16 +1217,17 @@ function AdminSlotModal({ dateStr, time, onClose, onBlock, onBook }) {
     return (
       <Modal onClose={onClose}>
         <h3 style={{ marginTop: 0 }}>Bloquer — {dateStr} à {time}</h3>
-        <input
-          className="input"
-          placeholder="Raison (optionnel)"
-          value={blockReason}
-          onChange={(e) => setBlockReason(e.target.value)}
-          style={{ marginBottom: 14 }}
-        />
+        <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>Raison</label>
+        <select value={blockReason} onChange={(e) => setBlockReason(e.target.value)} style={{ marginBottom: 16 }}>
+          <option>Maintenance</option>
+          <option>Client walk-in cash</option>
+          <option>Nettoyage</option>
+          <option>Événement privé</option>
+          <option>Autre</option>
+        </select>
         <div style={{ display: "flex", gap: 10 }}>
           <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setMode(null)}>Retour</button>
-          <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => onBlock(blockReason)}>Bloquer</button>
+          <button type="button" className="btn btn-danger" style={{ flex: 1 }} onClick={() => onBlock(blockReason)}>Bloquer ✗</button>
         </div>
       </Modal>
     );
@@ -1241,6 +1244,26 @@ function AdminSlotModal({ dateStr, time, onClose, onBlock, onBook }) {
           <option value={60}>1 heure — 3 000 CFA</option>
         </select>
         <input className="input" type="number" placeholder="Prix (CFA)" value={bookForm.price} onChange={(e) => setBookForm((f) => ({ ...f, price: Number(e.target.value) }))} />
+        <div>
+          <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>Mode de paiement</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              { id: "cash", label: "💵 Cash" },
+              { id: "card", label: "💳 Carte" },
+              { id: "tmoney", label: "📱 T-Money" },
+              { id: "flooz", label: "📱 Flooz" },
+            ].map((pm) => (
+              <button
+                key={pm.id}
+                type="button"
+                className={`btn btn-sm ${bookForm.payment_method === pm.id ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setBookForm((f) => ({ ...f, payment_method: pm.id }))}
+              >
+                {pm.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setMode(null)}>Retour</button>
@@ -1451,7 +1474,7 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) 
   const [form, setForm] = React.useState({ name: user?.name || "", phone: user?.phone || "" });
   const mine = bookings.filter(
     (b) =>
-      b.phone === user?.phone &&
+      (b.userId === user?.id || b.phone === user?.phone) &&
       b.isPrimary &&
       (b.type === "booked" || b.type === "member")
   );
@@ -1997,6 +2020,10 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
   const startOfWeek = getStartOfWeek(today);
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+  // Date range filter state
+  const [reportFrom, setReportFrom] = React.useState("");
+  const [reportTo, setReportTo] = React.useState("");
+
   const primaryBookings = bookings.filter(
     (b) => b.isPrimary && (b.type === "booked" || b.type === "member")
   );
@@ -2005,42 +2032,52 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
   const blocked = bookings.filter((b) => b.type === "blocked" && b.isPrimary);
 
   const paidBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0 && b.paymentStatus === "paid");
-  const pendingBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0 && b.paymentStatus !== "paid");
   const memberBookings = primaryBookings.filter((b) => b.type === "member");
 
   const totalSales = paidBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0);
 
-  const todaySales = paidBookings
-    .filter((b) => b.dateStr === todayStr)
-    .reduce((sum, b) => sum + Number(b.amount || 0), 0);
-
   const weeklySales = paidBookings
-    .filter((b) => {
-      const d = new Date(`${b.dateStr}T${b.time}:00`);
-      return d >= startOfWeek;
-    })
+    .filter((b) => new Date(`${b.dateStr}T${b.time}:00`) >= startOfWeek)
     .reduce((sum, b) => sum + Number(b.amount || 0), 0);
 
   const monthlySales = paidBookings
-    .filter((b) => {
-      const d = new Date(`${b.dateStr}T${b.time}:00`);
-      return d >= startOfMonth;
-    })
+    .filter((b) => new Date(`${b.dateStr}T${b.time}:00`) >= startOfMonth)
     .reduce((sum, b) => sum + Number(b.amount || 0), 0);
 
+  // Date range filtered bookings
+  const rangeBookings = React.useMemo(() => {
+    if (!reportFrom && !reportTo) return paidBookings;
+    return paidBookings.filter((b) => {
+      if (reportFrom && b.dateStr < reportFrom) return false;
+      if (reportTo && b.dateStr > reportTo) return false;
+      return true;
+    });
+  }, [paidBookings, reportFrom, reportTo]);
+
+  const rangeSales = rangeBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
   const allPricedBookings = primaryBookings.filter((b) => Number(b.amount || 0) > 0);
+
+  // Real payment method breakdown
+  const tmoneySales = paidBookings.filter((b) => b.paymentMethod === "tmoney").reduce((s, b) => s + Number(b.amount || 0), 0);
+  const floozSales  = paidBookings.filter((b) => b.paymentMethod === "flooz").reduce((s, b) => s + Number(b.amount || 0), 0);
+  const cashSales   = paidBookings.filter((b) => b.paymentMethod === "cash" || !b.paymentMethod).reduce((s, b) => s + Number(b.amount || 0), 0);
+  const cardSales   = paidBookings.filter((b) => b.paymentMethod === "card").reduce((s, b) => s + Number(b.amount || 0), 0);
+
+  const sourceMax = Math.max(tmoneySales, floozSales, cashSales, cardSales, 1);
+  const sourceWidth = (value) => `${Math.max(6, (value / sourceMax) * 100)}%`;
 
   // Customer growth: signups per month
   const growthByMonth = users.reduce((acc, u) => {
     if (!u.created_at) return acc;
-    const month = u.created_at.slice(0, 7); // "YYYY-MM"
+    const month = u.created_at.slice(0, 7);
     acc[month] = (acc[month] || 0) + 1;
     return acc;
   }, {});
   const growthData = Object.entries(growthByMonth)
     .map(([month, count]) => ({ month, count }))
     .sort((a, b) => a.month.localeCompare(b.month))
-    .slice(-6); // last 6 months
+    .slice(-6);
   const growthMax = Math.max(...growthData.map((m) => m.count), 1);
   const totalMembers = users.filter((u) => u.is_member).length;
 
@@ -2055,19 +2092,8 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
   const peakMax = Math.max(...peakHours.map((h) => h.count), 1);
 
   const recentSales = [...allPricedBookings]
-    .sort((a, b) => {
-      const aDate = new Date(`${a.dateStr}T${a.time}:00`).getTime();
-      const bDate = new Date(`${b.dateStr}T${b.time}:00`).getTime();
-      return bDate - aDate;
-    })
+    .sort((a, b) => new Date(`${b.dateStr}T${b.time}:00`) - new Date(`${a.dateStr}T${a.time}:00`))
     .slice(0, 10);
-
-  const tmoneySales = Math.round(totalSales * 0.55);
-  const floozSales = totalSales - tmoneySales;
-  const membershipSales = 0;
-
-  const sourceMax = Math.max(tmoneySales, floozSales, membershipSales, 1);
-  const sourceWidth = (value) => `${Math.max(6, (value / sourceMax) * 100)}%`;
 
   return (
     <>
@@ -2107,7 +2133,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           icon={Smartphone}
           title="T-Money / Flooz"
           value={`${formatCFA(tmoneySales)} / ${formatCFA(floozSales)}`}
-          subtitle="Répartition estimée"
+          subtitle="Paiements mobiles réels"
           color="#c4b5fd"
           bg="linear-gradient(180deg, rgba(124,58,237,0.14), rgba(17,24,39,0.96))"
         />
@@ -2130,24 +2156,10 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           </div>
 
           <div style={{ display: "grid", gap: 18 }}>
-            <RevenueSourceBar
-              label="T-Money (Togocel)"
-              value={tmoneySales}
-              color="#60a5fa"
-              width={sourceWidth(tmoneySales)}
-            />
-            <RevenueSourceBar
-              label="Flooz (Moov Africa)"
-              value={floozSales}
-              color="#fb923c"
-              width={sourceWidth(floozSales)}
-            />
-            <RevenueSourceBar
-              label="Memberships (30j)"
-              value={membershipSales}
-              color="#a78bfa"
-              width={sourceWidth(membershipSales)}
-            />
+            <RevenueSourceBar label="T-Money (Togocel)" value={tmoneySales} color="#60a5fa" width={sourceWidth(tmoneySales)} />
+            <RevenueSourceBar label="Flooz (Moov Africa)" value={floozSales} color="#fb923c" width={sourceWidth(floozSales)} />
+            <RevenueSourceBar label="Cash" value={cashSales} color="#6ee7b7" width={sourceWidth(cashSales)} />
+            <RevenueSourceBar label="Carte bancaire" value={cardSales} color="#a78bfa" width={sourceWidth(cardSales)} />
           </div>
         </div>
 
@@ -2170,7 +2182,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
                 <div className="muted">Ventes du jour</div>
               </div>
               <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "var(--accent)" }}>
-                {formatCFA(todaySales)}
+                {formatCFA(paidBookings.filter((b) => b.dateStr === todayStr).reduce((s, b) => s + Number(b.amount || 0), 0))}
               </div>
             </div>
 
@@ -2202,7 +2214,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
                 <div className="muted">Payées / En attente</div>
               </div>
               <div className="orbitron" style={{ fontWeight: 800, fontSize: 22, color: "#fbbf24" }}>
-                {paidBookings.length} / {pendingBookings.length}
+                {paidBookings.length} / {primaryBookings.filter((b) => Number(b.amount || 0) > 0 && b.paymentStatus !== "paid").length}
               </div>
             </div>
 
@@ -2223,6 +2235,55 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="card admin-card-soft">
+        <div className="orbitron admin-section-title">
+          <CalendarDays size={18} color="var(--accent)" />
+          RAPPORT PAR PÉRIODE
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <label className="muted" style={{ fontSize: 11, display: "block", marginBottom: 4 }}>Du</label>
+            <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
+          </div>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <label className="muted" style={{ fontSize: 11, display: "block", marginBottom: 4 }}>Au</label>
+            <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
+          </div>
+          {(reportFrom || reportTo) && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setReportFrom(""); setReportTo(""); }}>
+              Réinitialiser
+            </button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div className="kpi-box" style={{ flex: 1, minWidth: 120, border: "1px solid rgba(0,245,212,0.18)", background: "rgba(0,245,212,0.04)" }}>
+            <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>{reportFrom || reportTo ? "Revenus (période)" : "Revenus total"}</div>
+            <div className="orbitron" style={{ fontWeight: 800, fontSize: 20, color: "var(--accent)" }}>{formatCFA(rangeSales)}</div>
+          </div>
+          <div className="kpi-box" style={{ flex: 1, minWidth: 120, border: "1px solid rgba(251,191,36,0.18)", background: "rgba(245,158,11,0.04)" }}>
+            <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Sessions (période)</div>
+            <div className="orbitron" style={{ fontWeight: 800, fontSize: 20, color: "#fbbf24" }}>{rangeBookings.length}</div>
+          </div>
+          <div className="kpi-box" style={{ flex: 1, minWidth: 120, border: "1px solid rgba(110,231,183,0.18)", background: "rgba(16,185,129,0.04)" }}>
+            <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Moy. / session</div>
+            <div className="orbitron" style={{ fontWeight: 800, fontSize: 20, color: "#6ee7b7" }}>
+              {rangeBookings.length > 0 ? formatCFA(Math.round(rangeSales / rangeBookings.length)) : "—"}
+            </div>
+          </div>
+        </div>
+        {(reportFrom || reportTo) && rangeBookings.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Sessions dans cette période</div>
+            {rangeBookings.slice(0, 20).map((b) => (
+              <div key={b.id} className="list-row" style={{ fontSize: 13 }}>
+                <span>{b.dateStr} à {b.time} — {b.name}</span>
+                <span className="sales-amount">{formatCFA(b.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card admin-card-soft">
@@ -3232,32 +3293,34 @@ export default function App() {
         email,
         password: form.password,
         options: {
-          data: {
-            full_name: form.name,
-            phone: form.phone,
-          },
+          data: { full_name: form.name, phone: form.phone },
           emailRedirectTo: window.location.origin,
         },
       });
 
-      console.log("REGISTER RESULT", { data, error });
-
       if (error) {
-        console.error("SIGNUP ERROR:", error);
         addToast(error.message, "error");
         return;
       }
 
-      resetUiState();
-
+      // If email confirmation is disabled, session is returned immediately
       if (data.session) {
-        addToast("Compte créé et connecté.");
+        resetUiState();
+        addToast("Compte créé ! Bienvenue 🎮");
+        await loadCurrentUser();
+        return;
+      }
+
+      // Email confirmation required — try signing in anyway (works if confirmation disabled server-side)
+      const { data: signInData } = await supabase.auth.signInWithPassword({ email, password: form.password });
+      resetUiState();
+      if (signInData?.session) {
+        addToast("Compte créé ! Bienvenue 🎮");
         await loadCurrentUser();
       } else {
-        addToast("Compte créé. Vérifiez votre email pour confirmer le compte.", "info");
+        addToast("Compte créé ! Vérifiez votre email pour activer le compte.", "info");
       }
     } catch (err) {
-      console.error("HANDLE REGISTER CRASH", err);
       addToast(err?.message || "Erreur pendant l'inscription.", "error");
     }
   }
@@ -3301,25 +3364,16 @@ export default function App() {
 
   async function handleLogout() {
     try {
-      console.log("LOGOUT CLICK");
-      const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        console.error("LOGOUT ERROR", error);
-        addToast(error.message || "Erreur de déconnexion.", "error");
-        return;
-      }
-
-      setUser(null);
-      setPage("calendar");
-      resetUiState();
-      setRawUsers([]);
-      setLogs([]);
-      addToast("Déconnecté.", "info");
-    } catch (err) {
-      console.error("HANDLE LOGOUT CRASH", err);
-      addToast(err?.message || "Erreur de déconnexion.", "error");
-    }
+      await supabase.auth.signOut();
+    } catch (_) {}
+    setUser(null);
+    setPage("calendar");
+    resetUiState();
+    setRawUsers([]);
+    setLogs([]);
+    setBookings([]);
+    setEventBookings([]);
+    addToast("Déconnecté.", "info");
   }
 
   async function confirmBooking(promoResult = null, finalAmount = null) {
@@ -3372,34 +3426,24 @@ export default function App() {
     window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
   }
 
-  async function confirmBlock(reason) {
-    if (!blockDraft || !user?.isAdmin) return;
+  async function confirmBlock(reason, slotOverride = null) {
+    const slot = slotOverride || blockDraft;
+    if (!slot || !user?.isAdmin) return;
 
-    const start = combineDateAndTime(blockDraft.dateStr, blockDraft.time);
+    const start = combineDateAndTime(slot.dateStr, slot.time);
     const end = addMinutes(start, 20);
 
     const { data, error } = await supabase
       .from("blocked_slots")
-      .insert({
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        reason,
-      })
+      .insert({ start_time: start.toISOString(), end_time: end.toISOString(), reason })
       .select()
       .single();
 
-    if (error) {
-      addToast(error.message, "error");
-      return;
-    }
+    if (error) { addToast(error.message, "error"); return; }
 
-    await logAdminAction("BLOCK_SLOT", "blocked_slots", data?.id, {
-      dateStr: blockDraft.dateStr,
-      time: blockDraft.time,
-      reason,
-    });
+    await logAdminAction("BLOCK_SLOT", "blocked_slots", data?.id, { dateStr: slot.dateStr, time: slot.time, reason });
 
-    setBlockDraft(null);
+    if (!slotOverride) setBlockDraft(null);
     await loadData(user);
     addToast("Créneau bloqué.", "info");
   }
@@ -3436,7 +3480,8 @@ export default function App() {
       duration: form.duration,
       price: form.price,
       status: "confirmed",
-      payment_status: "pending",
+      payment_status: form.price === 0 ? "paid" : "pending",
+      payment_method: form.payment_method || null,
     });
 
     if (error) { addToast(error.message, "error"); return; }
@@ -3906,7 +3951,7 @@ export default function App() {
             dateStr={adminSlotDraft.dateStr}
             time={adminSlotDraft.time}
             onClose={() => setAdminSlotDraft(null)}
-            onBlock={(reason) => { const slot = adminSlotDraft; setAdminSlotDraft(null); setBlockDraft(slot); }}
+            onBlock={(reason) => { const slot = adminSlotDraft; setAdminSlotDraft(null); confirmBlock(reason, slot); }}
             onBook={handleAdminBookOverride}
           />
         )}
