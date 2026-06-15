@@ -1690,9 +1690,9 @@ function RevenueSourceBar({ label, value, color, width }) {
 const EVENT_BASE_GUESTS = 5;
 const EVENT_BASE_HOURS = 4;
 const EVENT_BASE_PRICE = 25000;
-const EVENT_EXTRA_PERSON = 2000;
-const EVENT_EXTRA_HOUR = 5000;
-const EVENT_DISTANCE_RATE = 5000; // per 10km
+const EVENT_EXTRA_PERSON = 500;
+const EVENT_EXTRA_HOUR = 100;
+const EVENT_DISTANCE_RATE = 5000; // per 20km
 // Adidogomé, Lomé, Togo
 const ADIDOGOME_LAT = 6.1750;
 const ADIDOGOME_LNG = 1.1550;
@@ -1708,7 +1708,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 function calcEventPrice(guests, hours, distanceKm = 0) {
   const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
-  const distanceFee = Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE;
+  const distanceFee = Math.ceil(distanceKm / 20) * EVENT_DISTANCE_RATE;
   return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
 }
 
@@ -1725,7 +1725,7 @@ function EventsPage({ user, onSubmit }) {
 
   const extraGuests = Math.max(0, form.guests - EVENT_BASE_GUESTS);
   const extraHours  = Math.max(0, form.hours  - EVENT_BASE_HOURS);
-  const distanceFee = distanceKm != null ? Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE : 0;
+  const distanceFee = distanceKm != null ? Math.ceil(distanceKm / 20) * EVENT_DISTANCE_RATE : 0;
   const total = calcEventPrice(form.guests, form.hours, distanceKm ?? 0);
 
   function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
@@ -1837,40 +1837,16 @@ function EventsPage({ user, onSubmit }) {
         </div>
       </div>
 
-      <div className="card" style={{ background: "linear-gradient(180deg, rgba(0,245,212,0.07), rgba(17,24,39,0.96))", borderColor: "var(--accent)" }}>
-        <strong style={{ display: "block", marginBottom: 12 }}>Récapitulatif du devis</strong>
-        <div className="list-row">
-          <span className="muted">Forfait de base (5 pers. / 4h)</span>
-          <span>{formatCFA(EVENT_BASE_PRICE)}</span>
-        </div>
-        {extraGuests > 0 && (
-          <div className="list-row">
-            <span className="muted">+{extraGuests} invité{extraGuests > 1 ? "s" : ""} supplémentaire{extraGuests > 1 ? "s" : ""}</span>
-            <span>{formatCFA(extraGuests * EVENT_EXTRA_PERSON)}</span>
-          </div>
+      <div className="card" style={{ background: "linear-gradient(180deg, rgba(0,245,212,0.07), rgba(17,24,39,0.96))", borderColor: "var(--accent)", textAlign: "center" }}>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>DEVIS ESTIMÉ</div>
+        {distanceLoading ? (
+          <div className="muted" style={{ fontSize: 14 }}>Calcul en cours…</div>
+        ) : (
+          <div className="orbitron" style={{ fontSize: 28, color: "var(--accent)" }}>{formatCFA(total)}</div>
         )}
-        {extraHours > 0 && (
-          <div className="list-row">
-            <span className="muted">+{extraHours}h supplémentaire{extraHours > 1 ? "s" : ""}</span>
-            <span>{formatCFA(extraHours * EVENT_EXTRA_HOUR)}</span>
-          </div>
+        {!distanceLoading && distanceKm == null && form.location.trim() === "" && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Entrez votre adresse pour inclure les frais de déplacement</div>
         )}
-        {distanceKm != null && distanceKm > 0 && (
-          <div className="list-row">
-            <span className="muted">🚗 Déplacement ({distanceKm} km depuis Adidogomé)</span>
-            <span>{formatCFA(distanceFee)}</span>
-          </div>
-        )}
-        {distanceLoading && (
-          <div className="list-row">
-            <span className="muted">🚗 Calcul des frais de déplacement…</span>
-            <span className="muted">—</span>
-          </div>
-        )}
-        <div className="list-row" style={{ borderBottom: "none", marginTop: 8 }}>
-          <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
-          <strong className="orbitron" style={{ fontSize: 20, color: "var(--accent)" }}>{formatCFA(total)}</strong>
-        </div>
       </div>
 
       {user ? (
