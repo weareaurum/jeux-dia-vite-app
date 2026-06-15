@@ -1767,60 +1767,41 @@ function EventsPage({ user, onSubmit }) {
             />
           </div>
 
-          <div>
-            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-              Nombre d'invités — <strong>{form.guests} personnes</strong>
-              {form.guests > capacityMax && <span style={{ color: "#fca5a5" }}> (max {capacityMax} pour {form.hours}h)</span>}
-            </label>
-            <input
-              type="range"
-              min={EVENT_BASE_GUESTS}
-              max={60}
-              value={form.guests}
-              onChange={(e) => set("guests", Number(e.target.value))}
-              style={{ width: "100%" }}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
-              <span>5</span><span>60</span>
+          <div className="grid-2">
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Nombre d'invités</label>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={form.guests}
+                onChange={(e) => set("guests", Number(e.target.value))}
+                placeholder="Ex: 20"
+              />
+            </div>
+            <div>
+              <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Durée (heures)</label>
+              <input
+                type="number"
+                min={1}
+                max={24}
+                value={form.hours}
+                onChange={(e) => set("hours", Number(e.target.value))}
+                placeholder="Ex: 4"
+              />
             </div>
           </div>
 
           <div>
-            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-              Durée — <strong>{form.hours} heures</strong>
-            </label>
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Distance depuis Adidogomé (km)</label>
             <input
-              type="range"
-              min={EVENT_BASE_HOURS}
-              max={10}
-              value={form.hours}
-              onChange={(e) => set("hours", Number(e.target.value))}
-              style={{ width: "100%" }}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
-              <span>4h</span><span>10h</span>
-            </div>
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Capacité max avec 2 casques : <strong>{capacityMax} personnes</strong> en {form.hours}h
-            </p>
-          </div>
-
-          <div>
-            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-              Distance depuis Adidogomé — <strong>{form.distanceKm} km</strong>
-            </label>
-            <input
-              type="range"
+              type="number"
               min={0}
-              max={150}
-              step={5}
+              max={500}
               value={form.distanceKm}
               onChange={(e) => set("distanceKm", Number(e.target.value))}
-              style={{ width: "100%" }}
+              placeholder="Ex: 10"
             />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }} className="muted">
-              <span>0 km (Adidogomé)</span><span>150 km</span>
-            </div>
           </div>
 
           <div>
