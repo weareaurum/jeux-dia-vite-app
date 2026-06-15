@@ -1718,45 +1718,78 @@ function EventsPage({ user, onSubmit }) {
     eventDate: "", startTime: "09:00", guests: 5, hours: 4,
     distanceKm: 0, location: "", notes: "",
   });
-  const [distanceKm, setDistanceKm] = React.useState(null); // null = not yet calculated
-  const [distanceLoading, setDistanceLoading] = React.useState(false);
-  const [distanceError, setDistanceError] = React.useState("");
-  const debounceRef = React.useRef(null);
+  const [distanceKm, setDistanceKm] = React.useState(null);
+  const [pin, setPin] = React.useState(null); // { lat, lng }
+  const [pinLabel, setPinLabel] = React.useState("");
+  const mapRef = React.useRef(null);
+  const leafletMapRef = React.useRef(null);
+  const markerRef = React.useRef(null);
 
-  const extraGuests = Math.max(0, form.guests - EVENT_BASE_GUESTS);
-  const extraHours  = Math.max(0, form.hours  - EVENT_BASE_HOURS);
-  const distanceFee = distanceKm != null ? Math.ceil(distanceKm / 20) * EVENT_DISTANCE_RATE : 0;
   const total = calcEventPrice(form.guests, form.hours, distanceKm ?? 0);
 
   function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
 
-  // Auto-geocode address after user stops typing (800ms debounce)
+  // Boot Leaflet map once
   React.useEffect(() => {
-    const addr = form.location.trim();
-    if (!addr) { setDistanceKm(null); setDistanceError(""); return; }
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setDistanceLoading(true); setDistanceError("");
-      try {
-        const q = encodeURIComponent(`${addr}, Lomé, Togo`);
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
-          headers: { "Accept-Language": "fr" },
-        });
-        const results = await res.json();
-        if (!results.length) { setDistanceError("Adresse introuvable. Vérifiez et réessayez."); setDistanceKm(null); }
-        else {
-          const { lat, lon } = results[0];
-          const km = haversineKm(ADIDOGOME_LAT, ADIDOGOME_LNG, parseFloat(lat), parseFloat(lon));
-          setDistanceKm(Math.round(km * 10) / 10);
+    if (!mapRef.current || leafletMapRef.current) return;
+    // Dynamically import leaflet CSS
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+    import("leaflet").then((L) => {
+      const lf = L.default || L;
+      // Center on Lomé
+      const map = lf.map(mapRef.current).setView([6.1375, 1.2123], 13);
+      lf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+      }).addTo(map);
+
+      // Custom small red pin icon
+      const icon = lf.divIcon({
+        className: "",
+        html: `<div style="width:22px;height:22px;background:var(--accent);border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 22],
+      });
+
+      map.on("click", async (e) => {
+        const { lat, lng } = e.latlng;
+        // Place / move marker
+        if (markerRef.current) { markerRef.current.setLatLng([lat, lng]); }
+        else { markerRef.current = lf.marker([lat, lng], { icon }).addTo(map); }
+        setPin({ lat, lng });
+        const km = haversineKm(ADIDOGOME_LAT, ADIDOGOME_LNG, lat, lng);
+        setDistanceKm(Math.round(km * 10) / 10);
+        // Reverse geocode for label
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+            { headers: { "Accept-Language": "fr" } }
+          );
+          const data = await res.json();
+          const label = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+          setPinLabel(label);
+          setForm((f) => ({ ...f, location: label }));
+        } catch (_) {
+          const label = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          setPinLabel(label);
+          setForm((f) => ({ ...f, location: label }));
         }
-      } catch (_) { setDistanceError("Impossible de calculer la distance. Réessayez."); setDistanceKm(null); }
-      setDistanceLoading(false);
-    }, 800);
-    return () => clearTimeout(debounceRef.current);
-  }, [form.location]);
+      });
+
+      leafletMapRef.current = map;
+    });
+    return () => {
+      if (leafletMapRef.current) { leafletMapRef.current.remove(); leafletMapRef.current = null; }
+    };
+  }, []);
 
   function handleSubmit() {
-    if (!user || !form.eventDate || !form.location.trim()) return;
+    if (!user || !form.eventDate || !pin) return;
     onSubmit({ ...form, distanceKm: distanceKm ?? 0, total });
   }
 
@@ -1794,35 +1827,18 @@ function EventsPage({ user, onSubmit }) {
           </div>
 
           <div>
-            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Adresse / Lieu de l'événement *</label>
-            <input
-              placeholder="Ex: Quartier Bè, Lomé"
-              value={form.location}
-              onChange={(e) => set("location", e.target.value)}
+            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+              Lieu de l'événement — <span style={{ color: "var(--accent)" }}>cliquez sur la carte pour épingler</span>
+            </label>
+            <div
+              ref={mapRef}
+              style={{ width: "100%", height: 260, borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}
             />
-            {/* Distance feedback */}
-            {form.location.trim() && (
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                {distanceLoading && (
-                  <span className="muted" style={{ fontSize: 12 }}>📍 Calcul de la distance…</span>
-                )}
-                {!distanceLoading && distanceKm != null && (
-                  <span style={{ fontSize: 12, color: "#6ee7b7" }}>
-                    📍 {distanceKm} km depuis Adidogomé · Frais: {formatCFA(distanceFee)}
-                  </span>
-                )}
-                {!distanceLoading && distanceError && (
-                  <span style={{ fontSize: 12, color: "#fca5a5" }}>⚠ {distanceError}</span>
-                )}
-                <a
-                  href={`https://www.google.com/maps/search/${encodeURIComponent(form.location + ", Lomé, Togo")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
-                >
-                  Voir sur Maps →
-                </a>
-              </div>
+            {pin && pinLabel && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>📍 {pinLabel}</div>
+            )}
+            {!pin && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Aucun emplacement sélectionné</div>
             )}
           </div>
 
@@ -1839,13 +1855,9 @@ function EventsPage({ user, onSubmit }) {
 
       <div className="card" style={{ background: "linear-gradient(180deg, rgba(0,245,212,0.07), rgba(17,24,39,0.96))", borderColor: "var(--accent)", textAlign: "center" }}>
         <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>DEVIS ESTIMÉ</div>
-        {distanceLoading ? (
-          <div className="muted" style={{ fontSize: 14 }}>Calcul en cours…</div>
-        ) : (
-          <div className="orbitron" style={{ fontSize: 28, color: "var(--accent)" }}>{formatCFA(total)}</div>
-        )}
-        {!distanceLoading && distanceKm == null && form.location.trim() === "" && (
-          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Entrez votre adresse pour inclure les frais de déplacement</div>
+        <div className="orbitron" style={{ fontSize: 28, color: "var(--accent)" }}>{formatCFA(total)}</div>
+        {!pin && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Épinglez votre adresse sur la carte pour inclure les frais de déplacement</div>
         )}
       </div>
 
@@ -1855,7 +1867,7 @@ function EventsPage({ user, onSubmit }) {
           className="btn btn-primary"
           style={{ width: "100%", padding: "14px" }}
           onClick={handleSubmit}
-          disabled={!form.eventDate || !form.location.trim() || distanceLoading}
+          disabled={!form.eventDate || !pin}
         >
           Envoyer la demande →
         </button>
