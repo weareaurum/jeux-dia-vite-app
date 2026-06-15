@@ -1694,11 +1694,10 @@ const EVENT_EXTRA_PERSON = 2000;
 const EVENT_EXTRA_HOUR = 5000;
 const EVENT_DISTANCE_RATE = 5000; // per 10km
 
-function calcEventPrice(guests, hours, distanceKm) {
+function calcEventPrice(guests, hours) {
   const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
-  const distanceFee = Math.ceil(distanceKm / 10) * EVENT_DISTANCE_RATE;
-  return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
+  return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR;
 }
 
 function EventsPage({ user, onSubmit }) {
@@ -1713,12 +1712,9 @@ function EventsPage({ user, onSubmit }) {
     notes: "",
   });
 
-  const maxGuests = EVENT_BASE_GUESTS + (form.hours * 8) - EVENT_BASE_GUESTS;
-  const capacityMax = form.hours * 8;
-  const total = calcEventPrice(form.guests, form.hours, form.distanceKm);
+  const total = calcEventPrice(form.guests, form.hours);
   const extraGuests = Math.max(0, form.guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, form.hours - EVENT_BASE_HOURS);
-  const distanceFee = Math.ceil(form.distanceKm / 10) * EVENT_DISTANCE_RATE;
 
   function set(key, val) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -1793,25 +1789,22 @@ function EventsPage({ user, onSubmit }) {
           </div>
 
           <div>
-            <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Distance depuis Adidogomé (km)</label>
-            <input
-              type="number"
-              min={0}
-              max={500}
-              value={form.distanceKm}
-              onChange={(e) => set("distanceKm", Number(e.target.value))}
-              placeholder="Ex: 10"
-            />
-          </div>
-
-          <div>
             <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>Adresse / Lieu de l'événement *</label>
             <input
-              className="input"
               placeholder="Ex: Quartier Bè, Lomé"
               value={form.location}
               onChange={(e) => set("location", e.target.value)}
             />
+            {form.location.trim() && (
+              <a
+                href={`https://www.google.com/maps/search/${encodeURIComponent(form.location + ", Lomé, Togo")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
+              >
+                📍 Voir sur Google Maps →
+              </a>
+            )}
           </div>
 
           <div>
@@ -1844,14 +1837,11 @@ function EventsPage({ user, onSubmit }) {
             <span>{formatCFA(extraHours * EVENT_EXTRA_HOUR)}</span>
           </div>
         )}
-        {distanceFee > 0 && (
-          <div className="list-row">
-            <span className="muted">Déplacement ({form.distanceKm} km)</span>
-            <span>{formatCFA(distanceFee)}</span>
-          </div>
-        )}
         <div className="list-row" style={{ borderBottom: "none", marginTop: 8 }}>
-          <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
+          <div>
+            <strong className="orbitron" style={{ color: "var(--accent)" }}>TOTAL ESTIMÉ</strong>
+            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Frais de déplacement calculés à la confirmation</div>
+          </div>
           <strong className="orbitron" style={{ fontSize: 20, color: "var(--accent)" }}>{formatCFA(total)}</strong>
         </div>
       </div>
@@ -3522,7 +3512,7 @@ export default function App() {
       `👥 Invités : ${form.guests} personnes`,
       `⏱ Durée : ${form.hours}h`,
       `📍 Lieu : ${form.location}`,
-      `🚗 Distance : ${form.distanceKm} km`,
+      `🗺 Localisation : https://www.google.com/maps/search/${encodeURIComponent(form.location + ", Lomé, Togo")}`,
       `💰 Devis total : ${formatCFA(form.total)}`,
       form.notes ? `📝 Notes : ${form.notes}` : "",
     ].filter(Boolean).join("\n");
