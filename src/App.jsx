@@ -3078,6 +3078,7 @@ function TournamentsPage({ user }) {
 
 export default function App() {
   const [page, setPage] = useState("calendar");
+  const loginInProgress = React.useRef(false);
   const [user, setUser] = useState(null);
   const [rawUsers, setRawUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -3239,7 +3240,7 @@ export default function App() {
         if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); return; }
         if (event === "PASSWORD_RECOVERY") { setResetModal(true); return; }
         if (event === "SIGNED_IN") {
-          await loadCurrentUser(session?.user, { navigate: true });
+          if (!loginInProgress.current) await loadCurrentUser(session?.user, { navigate: true });
         } else if (event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
           if (session?.user) await loadCurrentUser(session.user);
         }
@@ -3264,12 +3265,13 @@ export default function App() {
   }
 
   async function handleLogin(form) {
+    if (!form.email || !form.password) {
+      addToast("Entrez votre email et mot de passe.", "error");
+      return;
+    }
+    loginInProgress.current = true;
     try {
-      if (!form.email || !form.password) {
-        addToast("Entrez votre email et mot de passe.", "error");
-        return;
-      }
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: form.email.trim(),
         password: form.password,
       });
@@ -3277,10 +3279,25 @@ export default function App() {
         addToast(error.message || "Connexion impossible.", "error");
         return;
       }
-      // onAuthStateChange SIGNED_IN handles setUser, loadData, navigation, toast
+      const row = await ensureUserProfile(data.user);
+      const built = makeUser(row || {
+        id: data.user.id,
+        full_name: data.user.user_metadata?.full_name || "Utilisateur",
+        email: data.user.email || "",
+        phone: data.user.user_metadata?.phone || "",
+        role: "customer",
+        is_member: false,
+        member_expiry: null,
+      });
+      setUser(built);
       resetUiState();
+      setPage(built.isAdmin ? "admin" : "calendar");
+      addToast("Connexion réussie.");
+      await loadData(built);
     } catch (err) {
       addToast(err?.message || "Erreur inattendue.", "error");
+    } finally {
+      loginInProgress.current = false;
     }
   }
 
