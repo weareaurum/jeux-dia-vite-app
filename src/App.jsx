@@ -582,6 +582,33 @@ function makeUser(row) {
   };
 }
 
+// Stripped version for calendar_slots view (no PII) — used for non-admin users
+function expandCalendarRow(row) {
+  const start = new Date(row.start_time);
+  const dateStr = toDateStr(start);
+  const startTime = hhmm(start);
+  const minutes = row.duration || 15;
+  const slots = minutes >= 60 ? 4 : 1;
+  const startIndex = TIME_SLOTS.indexOf(startTime);
+  const times = TIME_SLOTS.slice(startIndex, startIndex + slots);
+
+  const items = times.map((time, i) => ({
+    id: `${row.id}_${i}`,
+    sourceId: row.id,
+    dateStr,
+    time,
+    type: row.price > 0 ? "booked" : "member",
+    isPrimary: i === 0,
+    durationLabel: minutes >= 60 ? "1 heure" : "15 min",
+  }));
+
+  const bufferTime = TIME_SLOTS[startIndex + slots];
+  if (bufferTime) {
+    items.push({ id: `${row.id}_buffer`, sourceId: row.id, dateStr, time: bufferTime, type: "buffer", isPrimary: false });
+  }
+  return items;
+}
+
 function expandBookingRow(row) {
   const start = new Date(row.start_time);
   const dateStr = toDateStr(start);
@@ -3145,34 +3172,51 @@ export default function App() {
 
   const loadData = useCallback(async (currentUser = null) => {
     try {
-      const { data: bookingsData, error: bookingsError } = await supabase
-        .from("bookings")
-        .select("*")
-        .order("start_time", { ascending: true });
+      let bookingItems = [];
+
+      if (currentUser?.isAdmin) {
+        // Admin: full data including PII
+        const { data: bookingsData, error: bookingsError } = await supabase
+          .from("bookings")
+          .select("*")
+          .order("start_time", { ascending: true });
+        if (bookingsError) { addToast(bookingsError.message, "error"); setLoading(false); return; }
+        bookingItems = (bookingsData || []).flatMap(expandBookingRow);
+      } else {
+        // Non-admin: use calendar_slots view (no PII) for calendar display
+        const { data: calendarData } = await supabase
+          .from("calendar_slots")
+          .select("*")
+          .order("start_time", { ascending: true });
+        const calendarItems = (calendarData || []).flatMap(expandCalendarRow);
+
+        if (currentUser?.id) {
+          // Also fetch own full bookings (with PII) for profile page
+          const { data: myBookings } = await supabase
+            .from("bookings")
+            .select("*")
+            .eq("user_id", currentUser.id)
+            .order("start_time", { ascending: true });
+          const myItems = (myBookings || []).flatMap(expandBookingRow);
+          const myIds = new Set((myBookings || []).map((b) => b.id));
+          // Merge: own full items + other calendar items (no PII)
+          bookingItems = [...calendarItems.filter((i) => !myIds.has(i.sourceId)), ...myItems];
+        } else {
+          bookingItems = calendarItems;
+        }
+      }
 
       const { data: blockedData, error: blockedError } = await supabase
         .from("blocked_slots")
         .select("*")
         .order("start_time", { ascending: true });
 
-      if (bookingsError || blockedError) {
-        const realError =
-          bookingsError?.message ||
-          blockedError?.message ||
-          "Erreur Supabase";
-
-        console.error("LOAD DATA ERROR", {
-          bookingsError,
-          blockedError,
-          currentUser,
-        });
-
-        addToast(realError, "error");
+      if (blockedError) {
+        addToast(blockedError.message, "error");
         setLoading(false);
         return;
       }
 
-      const bookingItems = (bookingsData || []).flatMap(expandBookingRow);
       const blockedItems = (blockedData || []).flatMap(expandBlockedRow);
       setBookings([...bookingItems, ...blockedItems]);
 
