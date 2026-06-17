@@ -675,6 +675,7 @@ function AuthModal({
   const [tab, setTab] = useState(mode || "login");
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
   const [submitting, setSubmitting] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -689,7 +690,31 @@ function AuthModal({
   async function submitRegister() {
     if (submitting) return;
     setSubmitting(true);
-    try { await onRegister(form); } finally { setSubmitting(false); }
+    try {
+      const result = await onRegister(form);
+      if (result === "email_required") setRegistered(true);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (registered) {
+    return (
+      <Modal onClose={onClose}>
+        <div style={{ textAlign: "center", padding: "12px 0" }}>
+          <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+          <h3 style={{ marginTop: 0, color: "var(--accent)" }}>Compte créé !</h3>
+          <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid var(--accent)", borderRadius: 12, padding: "16px", margin: "16px 0", textAlign: "left" }}>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Un email de confirmation a été envoyé à :</p>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--accent)" }}>{form.email}</p>
+            <p style={{ margin: "10px 0 0", fontSize: 13 }} className="muted">Cliquez sur le lien dans l'email pour activer votre compte, puis connectez-vous.</p>
+          </div>
+          <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 8 }} onClick={onClose}>
+            Compris
+          </button>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -1462,7 +1487,7 @@ function MembershipPage({ user, onActivate }) {
   );
 }
 
-function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) {
+function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, onChangePassword }) {
   const now = new Date();
   const [editing, setEditing] = React.useState(false);
   const [form, setForm] = React.useState({ name: user?.name || "", phone: user?.phone || "" });
@@ -1525,6 +1550,11 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) 
                 <span className="tag tag-green">MEMBRE ACTIF</span>
               </div>
             )}
+            <div style={{ marginTop: 14 }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onChangePassword}>
+                Changer mon mot de passe
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -3302,14 +3332,13 @@ export default function App() {
   }
 
   async function handleRegister(form) {
+    if (!form.name || !form.phone || !form.email || !form.password) {
+      addToast("Remplissez tous les champs.", "error");
+      return;
+    }
+    const email = form.email.trim();
+    loginInProgress.current = true;
     try {
-      if (!form.name || !form.phone || !form.email || !form.password) {
-        addToast("Remplissez tous les champs.", "error");
-        return;
-      }
-
-      const email = form.email.trim();
-
       const { data, error } = await supabase.auth.signUp({
         email,
         password: form.password,
@@ -3319,30 +3348,39 @@ export default function App() {
         },
       });
 
-      if (error) {
-        addToast(error.message, "error");
-        return;
-      }
+      if (error) { addToast(error.message, "error"); return; }
 
-      // If email confirmation is disabled, session is returned immediately
+      // Session returned immediately — email confirmation disabled
       if (data.session) {
+        const row = await ensureUserProfile(data.user);
+        const built = makeUser(row || { id: data.user.id, full_name: form.name, email, phone: form.phone, role: "customer", is_member: false, member_expiry: null });
+        setUser(built);
         resetUiState();
+        setPage(built.isAdmin ? "admin" : "calendar");
         addToast("Compte créé ! Bienvenue 🎮");
-        await loadCurrentUser();
+        await loadData(built);
         return;
       }
 
-      // Email confirmation required — try signing in anyway (works if confirmation disabled server-side)
+      // Try signing in immediately (some Supabase configs allow this)
       const { data: signInData } = await supabase.auth.signInWithPassword({ email, password: form.password });
-      resetUiState();
       if (signInData?.session) {
+        const row = await ensureUserProfile(signInData.user);
+        const built = makeUser(row || { id: signInData.user.id, full_name: form.name, email, phone: form.phone, role: "customer", is_member: false, member_expiry: null });
+        setUser(built);
+        resetUiState();
+        setPage(built.isAdmin ? "admin" : "calendar");
         addToast("Compte créé ! Bienvenue 🎮");
-        await loadCurrentUser();
-      } else {
-        addToast("Compte créé ! Vérifiez votre email pour activer le compte.", "info");
+        await loadData(built);
+        return;
       }
+
+      // Email confirmation required — signal AuthModal to show confirmation screen
+      return "email_required";
     } catch (err) {
       addToast(err?.message || "Erreur pendant l'inscription.", "error");
+    } finally {
+      loginInProgress.current = false;
     }
   }
 
@@ -3861,7 +3899,7 @@ export default function App() {
             <MembershipPage user={user} onActivate={handleActivateMembership} />
           )}
 
-          {!loading && page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} />}
+          {!loading && page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} onChangePassword={() => setResetModal(true)} />}
 
           {!loading && page === "admin" && user?.isAdmin && (
             <AdminDashboard
