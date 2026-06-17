@@ -914,8 +914,8 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
           <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Réservation en attente</h3>
           <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid var(--accent)", borderRadius: 12, padding: "16px", margin: "16px 0", textAlign: "left" }}>
-            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via {network === "tmoney" ? "T-Money" : "Flooz"} au :</p>
-            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 90 12 34 56</p>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via T-Money au :</p>
+            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 70 16 41 03</p>
             <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
           </div>
           <p className="muted" style={{ fontSize: 13 }}>L'admin confirmera votre paiement et vous serez notifié(e) dès que votre réservation est validée.</p>
@@ -979,7 +979,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
 
           <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Mode de paiement</p>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {["tmoney", "flooz", "cash"].map((n) => (
+            {["tmoney", "cash"].map((n) => (
               <button
                 key={n}
                 type="button"
@@ -990,13 +990,13 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
                   color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13,
                 }}
               >
-                {n === "tmoney" ? "T-Money" : n === "flooz" ? "Flooz" : "Cash"}
+                {n === "tmoney" ? "T-Money" : "Cash"}
               </button>
             ))}
           </div>
-          {(network === "tmoney" || network === "flooz") && (
+          {network === "tmoney" && (
             <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 90 12 34 56</strong> via {network === "tmoney" ? "T-Money" : "Flooz"}. Votre réservation sera confirmée après vérification.
+              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 70 16 41 03</strong> via T-Money. Votre réservation sera confirmée après vérification.
             </div>
           )}
           {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
@@ -1566,7 +1566,7 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) 
                 </div>
                 {b.paymentStatus === "pending" && (b.paymentMethod === "tmoney" || b.paymentMethod === "flooz") && (
                   <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
-                    Envoyez <strong>{formatCFA(b.amount)}</strong> au <strong>+228 90 12 34 56</strong> via {b.paymentMethod === "tmoney" ? "T-Money" : "Flooz"} pour valider votre réservation.
+                    Envoyez <strong>{formatCFA(b.amount)}</strong> au <strong>+228 70 16 41 03</strong> via T-Money pour valider votre réservation.
                   </div>
                 )}
                 {b.paymentStatus === "rejected" && (
