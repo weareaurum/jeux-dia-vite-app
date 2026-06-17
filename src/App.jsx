@@ -896,43 +896,13 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   }
 
   async function handlePay() {
-    if (!isMember && !phone.trim()) { setPayError("Entrez votre numéro de téléphone."); return; }
+    if (isMember) { onConfirm(promoResult, 0); return; }
     setPaying(true); setPayError("");
     try {
-      if (isMember) {
-        // Members don't pay — confirm directly
-        onConfirm(promoResult, 0);
-        return;
-      }
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            booking: {
-              userId:    user?.id,
-              dateStr:   booking.dateStr,
-              time:      booking.time,
-              duration:  booking.durationMinutes ?? booking.duration ?? 40,
-              amount:    finalAmount,
-              promoCode: promoResult?.code ?? null,
-            },
-            phone: phone.trim(),
-            network,
-          }),
-        }
-      );
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setPayError(data.error ?? "Erreur paiement.");
-        setPaying(false);
-        return;
-      }
+      await onConfirm(promoResult, finalAmount, network);
       setPaid(true);
-      setTimeout(() => { onConfirm(promoResult, finalAmount); }, 3000);
     } catch (err) {
-      setPayError("Erreur réseau. Réessayez.");
+      setPayError("Erreur. Réessayez.");
       setPaying(false);
     }
   }
@@ -941,9 +911,15 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     return (
       <Modal onClose={onClose}>
         <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>
-          <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Notification envoyée !</h3>
-          <p className="muted">Vérifiez votre téléphone et approuvez le paiement {network === "tmoney" ? "T-Money" : "Flooz"} pour confirmer votre réservation.</p>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
+          <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Réservation en attente</h3>
+          <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid var(--accent)", borderRadius: 12, padding: "16px", margin: "16px 0", textAlign: "left" }}>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via {network === "tmoney" ? "T-Money" : "Flooz"} au :</p>
+            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 90 12 34 56</p>
+            <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
+          </div>
+          <p className="muted" style={{ fontSize: 13 }}>L'admin confirmera votre paiement et vous serez notifié(e) dès que votre réservation est validée.</p>
+          <button type="button" className="btn btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={onClose}>Compris</button>
         </div>
       </Modal>
     );
@@ -1001,9 +977,9 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
           {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
 
-          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Paiement mobile money</p>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Mode de paiement</p>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {["tmoney", "flooz"].map((n) => (
+            {["tmoney", "flooz", "cash"].map((n) => (
               <button
                 key={n}
                 type="button"
@@ -1011,22 +987,18 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
                 style={{
                   flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${network === n ? "var(--accent)" : "var(--border)"}`,
                   background: network === n ? "rgba(0,245,212,0.1)" : "transparent",
-                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer",
+                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13,
                 }}
               >
-                {n === "tmoney" ? "T-Money" : "Flooz"}
+                {n === "tmoney" ? "T-Money" : n === "flooz" ? "Flooz" : "Cash"}
               </button>
             ))}
           </div>
-          <input
-            className="input"
-            placeholder="Numéro de téléphone (ex: 90000000)"
-            value={phone}
-            onChange={(e) => { setPhone(e.target.value); setPayError(""); }}
-            type="tel"
-            maxLength={8}
-            style={{ width: "100%", boxSizing: "border-box" }}
-          />
+          {(network === "tmoney" || network === "flooz") && (
+            <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
+              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 90 12 34 56</strong> via {network === "tmoney" ? "T-Money" : "Flooz"}. Votre réservation sera confirmée après vérification.
+            </div>
+          )}
           {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
         </>
       )}
@@ -1579,15 +1551,29 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile }) 
               </div>
             ))}
             {pending.map((b) => (
-              <div key={b.id} className="list-row">
-                <div>
-                  <div>{b.dateStr} à {b.time}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+              <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div>
+                    <div>{b.dateStr} à {b.time}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{b.durationLabel}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {b.paymentStatus === "rejected"
+                      ? <span className="tag tag-red">REJETÉ</span>
+                      : <span className="tag tag-amber">EN ATTENTE</span>}
+                    <span>{formatCFA(b.amount)}</span>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span className="tag tag-amber">EN ATTENTE</span>
-                  <span>{formatCFA(b.amount)}</span>
-                </div>
+                {b.paymentStatus === "pending" && (b.paymentMethod === "tmoney" || b.paymentMethod === "flooz") && (
+                  <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
+                    Envoyez <strong>{formatCFA(b.amount)}</strong> au <strong>+228 90 12 34 56</strong> via {b.paymentMethod === "tmoney" ? "T-Money" : "Flooz"} pour valider votre réservation.
+                  </div>
+                )}
+                {b.paymentStatus === "rejected" && (
+                  <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.3)", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#fca5a5" }}>
+                    Paiement non reçu. Contactez-nous pour assistance.
+                  </div>
+                )}
               </div>
             ))}
           </>
@@ -2022,7 +2008,7 @@ function PromoCodesSection({ onRefresh }) {
   );
 }
 
-function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onAdminCancel, onConfirmEvent, onCancelEvent }) {
+function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onRejectPayment, onAdminCancel, onConfirmEvent, onCancelEvent }) {
   const today = new Date();
   const todayStr = toDateStr(today);
   const startOfWeek = getStartOfWeek(today);
@@ -2155,6 +2141,30 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           bg="linear-gradient(180deg, rgba(16,185,129,0.14), rgba(17,24,39,0.96))"
         />
       </div>
+
+      {/* ── Pending payment approvals ── */}
+      {(() => {
+        const pendingPay = primaryBookings.filter(b => b.paymentStatus === "pending" && Number(b.amount || 0) > 0);
+        if (pendingPay.length === 0) return null;
+        return (
+          <div className="card" style={{ border: "1px solid rgba(245,158,11,0.5)", background: "rgba(245,158,11,0.06)" }}>
+            <div className="orbitron admin-section-title" style={{ color: "#f59e0b" }}>
+              🔔 PAIEMENTS EN ATTENTE DE VÉRIFICATION ({pendingPay.length})
+            </div>
+            {pendingPay.map(b => (
+              <div key={b.id} className="list-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{b.name || "Client"}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{b.dateStr} à {b.time} · {b.durationLabel} · {b.paymentMethod === "tmoney" ? "T-Money" : b.paymentMethod === "flooz" ? "Flooz" : b.paymentMethod || "—"}</div>
+                </div>
+                <span style={{ fontWeight: 700, color: "#f59e0b" }}>{formatCFA(b.amount)}</span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmPayment(b)}>✓ Confirmer</button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => onRejectPayment(b)}>✕ Rejeter</button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       <div className="grid-2">
         <div className="card admin-card-soft">
@@ -3370,12 +3380,13 @@ export default function App() {
     addToast("Déconnecté.", "info");
   }
 
-  async function confirmBooking(promoResult = null, finalAmount = null) {
+  async function confirmBooking(promoResult = null, finalAmount = null, paymentMethod = null) {
     if (!bookingDraft || !user) return;
 
     const start = combineDateAndTime(bookingDraft.dateStr, bookingDraft.time);
     const end = addMinutes(start, bookingDraft.durationMinutes);
     const price = finalAmount !== null ? finalAmount : bookingDraft.amount;
+    const isCashOrFree = paymentMethod === "cash" || price === 0;
 
     const { error } = await supabase.from("bookings").insert({
       user_id: user.id,
@@ -3386,7 +3397,8 @@ export default function App() {
       duration: bookingDraft.durationMinutes,
       price,
       status: "confirmed",
-      payment_status: "pending",
+      payment_status: isCashOrFree ? "paid" : "pending",
+      payment_method: paymentMethod || null,
       promo_code: promoResult?.code || null,
     });
 
@@ -3626,19 +3638,21 @@ export default function App() {
       .from("bookings")
       .update({ payment_status: "paid" })
       .eq("id", booking.sourceId);
-
-    if (error) {
-      addToast(error.message, "error");
-      return;
-    }
-
-    await logAdminAction("CONFIRM_PAYMENT", "bookings", booking.sourceId, {
-      customer: booking.name,
-      amount: booking.amount,
-    });
-
+    if (error) { addToast(error.message, "error"); return; }
+    await logAdminAction("CONFIRM_PAYMENT", "bookings", booking.sourceId, { customer: booking.name, amount: booking.amount });
     await loadData(user);
-    addToast(`Paiement confirmé — ${booking.name}`);
+    addToast(`✅ Paiement confirmé — ${booking.name}`);
+  }
+
+  async function handleRejectPayment(booking) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ payment_status: "rejected", status: "cancelled" })
+      .eq("id", booking.sourceId);
+    if (error) { addToast(error.message, "error"); return; }
+    await logAdminAction("REJECT_PAYMENT", "bookings", booking.sourceId, { customer: booking.name, amount: booking.amount });
+    await loadData(user);
+    addToast(`Paiement rejeté — ${booking.name}`, "error");
   }
 
   async function handleActivateMembership() {
@@ -3841,6 +3855,7 @@ export default function App() {
               onEditUser={setEditUser}
               onUnblock={handleUnblock}
               onConfirmPayment={handleConfirmPayment}
+              onRejectPayment={handleRejectPayment}
               onAdminCancel={handleAdminCancelBooking}
               onConfirmEvent={handleConfirmEvent}
               onCancelEvent={handleCancelEvent}
