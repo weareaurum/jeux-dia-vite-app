@@ -3183,10 +3183,9 @@ export default function App() {
         if (bookingsError) { addToast(bookingsError.message, "error"); setLoading(false); return; }
         bookingItems = (bookingsData || []).flatMap(expandBookingRow);
       } else {
-        // Non-admin: use calendar_slots view (no PII) for calendar display
+        // Non-admin: use security-definer RPC (bypasses RLS, returns no PII)
         const { data: calendarData } = await supabase
-          .from("calendar_slots")
-          .select("*")
+          .rpc("get_calendar_slots")
           .order("start_time", { ascending: true });
         const calendarItems = (calendarData || []).flatMap(expandCalendarRow);
 
@@ -3307,16 +3306,24 @@ export default function App() {
   }, [ensureUserProfile, loadData, addToast]);
 
   useEffect(() => {
-    loadCurrentUser();
-
+    // onAuthStateChange fires INITIAL_SESSION immediately on subscribe,
+    // so we use it as the single source of truth for the initial auth check.
+    // No separate loadCurrentUser() call needed — avoids race with INITIAL_SESSION.
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
         if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); return; }
         if (event === "PASSWORD_RECOVERY") { setResetModal(true); return; }
         if (event === "SIGNED_IN") {
           if (!loginInProgress.current) await loadCurrentUser(session?.user, { navigate: true });
-        } else if (event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+        } else if (event === "TOKEN_REFRESHED") {
           if (session?.user) await loadCurrentUser(session.user);
+        } else if (event === "INITIAL_SESSION") {
+          if (session?.user) {
+            await loadCurrentUser(session.user);
+          } else {
+            // No session on page load — load public data and stop loading spinner
+            await loadData(null);
+          }
         }
       } catch (err) {
         console.error("AUTH STATE CHANGE CRASH", err);
@@ -3324,7 +3331,7 @@ export default function App() {
     });
 
     return () => listener?.subscription?.unsubscribe?.();
-  }, [loadCurrentUser]);
+  }, [loadCurrentUser, loadData]);
 
   async function logAdminAction(actionType, targetTable, targetId, details = {}) {
     if (!user?.isAdmin) return;
