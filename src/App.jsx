@@ -1951,8 +1951,9 @@ function PromoCodesSection({ onRefresh }) {
   React.useEffect(() => { fetchCodes(); }, []);
 
   async function fetchCodes() {
-    const { data } = await (await import("./lib/supabase")).supabase
+    const { data, error } = await (await import("./lib/supabase")).supabase
       .from("promo_codes").select("*").order("created_at", { ascending: false });
+    if (error) { console.error("Promo codes fetch error:", error); return; }
     setCodes(data || []);
   }
 
@@ -2792,7 +2793,10 @@ function TournamentFeed({ tournament, user, registrations }) {
       .select("*, author:author_id(full_name)")
       .eq("tournament_id", tournament.id)
       .order("created_at", { ascending: false })
-      .then(({ data }) => setPosts(data || []));
+      .then(({ data, error }) => {
+        if (error) console.error("Tournament posts fetch error:", error);
+        setPosts(data || []);
+      });
   }, [tournament?.id]);
 
   async function handlePost() {
@@ -2801,20 +2805,23 @@ function TournamentFeed({ tournament, user, registrations }) {
     const { data, error } = await supabase.from("tournament_posts").insert({
       tournament_id: tournament.id,
       author_id: user.id,
+      author_name: user.name,
       content: content.trim() || null,
       image_url: imgUrl.trim() || null,
       video_url: videoUrl.trim() || null,
       is_admin_post: user.isAdmin,
     }).select("*, author:author_id(full_name)").single();
     setPosting(false);
-    if (!error && data) {
+    if (error) { console.error("Tournament post error:", error); return; }
+    if (data) {
       setPosts(p => [data, ...p]);
       setContent(""); setImgUrl(""); setVideoUrl("");
     }
   }
 
   async function handleDelete(postId) {
-    await supabase.from("tournament_posts").delete().eq("id", postId);
+    const { error } = await supabase.from("tournament_posts").delete().eq("id", postId);
+    if (error) { console.error("Tournament post delete error:", error); return; }
     setPosts(p => p.filter(x => x.id !== postId));
   }
 
@@ -2852,7 +2859,7 @@ function TournamentFeed({ tournament, user, registrations }) {
                 {(post.author?.full_name || "?").charAt(0).toUpperCase()}
               </div>
               <div>
-                <strong style={{ fontSize: 13 }}>{post.author?.full_name || "Joueur"}</strong>
+                <strong style={{ fontSize: 13 }}>{post.author?.full_name || post.author_name || "Joueur"}</strong>
                 {post.is_admin_post && <span className="tag tag-cyan" style={{ marginLeft: 6, fontSize: 10 }}>Admin</span>}
               </div>
             </div>
@@ -2882,11 +2889,12 @@ function TournamentDetail({ tournament, user, onBack }) {
   const isRegistered = myReg && (myReg.payment_status === "free" || myReg.payment_status === "paid");
   const canSeeFeed = isRegistered || user?.isAdmin;
 
-  function loadRegistrations() {
-    supabase.from("tournament_registrations")
+  async function loadRegistrations() {
+    const { data, error } = await supabase.from("tournament_registrations")
       .select("*, user:user_id(full_name, email, phone)")
-      .eq("tournament_id", tournament.id)
-      .then(({ data }) => setRegistrations(data || []));
+      .eq("tournament_id", tournament.id);
+    if (error) console.error("Load registrations error:", error);
+    setRegistrations(data || []);
   }
 
   React.useEffect(() => { loadRegistrations(); }, [tournament.id]);
@@ -3184,9 +3192,10 @@ export default function App() {
         bookingItems = (bookingsData || []).flatMap(expandBookingRow);
       } else {
         // Non-admin: use security-definer RPC (bypasses RLS, returns no PII)
-        const { data: calendarData } = await supabase
+        const { data: calendarData, error: calendarError } = await supabase
           .rpc("get_calendar_slots")
           .order("start_time", { ascending: true });
+        if (calendarError) { addToast(calendarError.message, "error"); setLoading(false); return; }
         const calendarItems = (calendarData || []).flatMap(expandCalendarRow);
 
         if (currentUser?.id) {
@@ -3259,7 +3268,8 @@ export default function App() {
 
       if (existing) return existing;
 
-      return {
+      // New user — insert profile into DB
+      const newProfile = {
         id: authUser.id,
         full_name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "Utilisateur",
         email: authUser.email || "",
@@ -3268,6 +3278,16 @@ export default function App() {
         is_member: false,
         member_expiry: null,
       };
+      const { data: inserted, error: insertError } = await supabase
+        .from("users")
+        .insert(newProfile)
+        .select()
+        .single();
+      if (insertError) {
+        console.error("ENSURE USER PROFILE INSERT ERROR", insertError);
+        return newProfile; // fall back to in-memory profile
+      }
+      return inserted;
     } catch (err) {
       console.error("ENSURE USER PROFILE CRASH", err);
       return null;
@@ -3335,7 +3355,7 @@ export default function App() {
 
   async function logAdminAction(actionType, targetTable, targetId, details = {}) {
     if (!user?.isAdmin) return;
-    await supabase.from("admin_activity_logs").insert({
+    const { error } = await supabase.from("admin_activity_logs").insert({
       admin_user_id: user.id,
       admin_name: user.name,
       action_type: actionType,
@@ -3343,6 +3363,7 @@ export default function App() {
       target_id: targetId ? String(targetId) : null,
       details,
     });
+    if (error) console.error("Admin log error:", error);
   }
 
   async function handleLogin(form) {
