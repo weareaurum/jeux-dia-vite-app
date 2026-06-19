@@ -32,8 +32,8 @@ const TIME_SLOTS = [
 ];
 
 const DURATIONS = [
-  { label: "15 min", minutes: 15, slots: 1, price: 1000 },
-  { label: "1 heure", minutes: 60, slots: 4, price: 3000 },
+  { label: "15 min", minutes: 15, slots: 1, price: 1000, people: "1 personne", desc: "Session solo" },
+  { label: "1 heure", minutes: 60, slots: 4, price: 3000, people: "1–3 personnes", desc: "Session partagée" },
 ];
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -1420,10 +1420,12 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, onOpenAdminS
                 borderColor: selectedDuration.label === d.label ? "var(--accent)" : "var(--border)",
               }}
             >
-              <div className="orbitron" style={{ fontWeight: 700, fontSize: 22, marginBottom: 6 }}>{d.label}</div>
-              <div style={{ color: user?.memberStatus === "active" ? "#6ee7b7" : "#fcd34d", fontWeight: 700 }}>
+              <div className="orbitron" style={{ fontWeight: 700, fontSize: 22, marginBottom: 4 }}>{d.label}</div>
+              <div style={{ color: user?.memberStatus === "active" ? "#6ee7b7" : "#fcd34d", fontWeight: 700, marginBottom: 8 }}>
                 {user?.memberStatus === "active" ? "0 CFA ✦" : formatCFA(d.price)}
               </div>
+              <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, marginBottom: 2 }}>{d.people}</div>
+              <div className="muted" style={{ fontSize: 12 }}>{d.desc}</div>
             </div>
           ))}
         </div>
@@ -2747,7 +2749,7 @@ function RegisterTournamentModal({ tournament, user, onClose, onRegistered }) {
               <div>
                 <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>Réseau de paiement</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {[{ id: "tmoney", label: "T-Money" }, { id: "flooz", label: "Flooz" }].map(n => (
+                  {[{ id: "tmoney", label: "T-Money" }].map(n => (
                     <button
                       key={n.id}
                       type="button"
@@ -3921,7 +3923,7 @@ export default function App() {
                 Vivez la réalité<br /><span className="accent">virtuelle</span> à Lomé
               </h1>
               <p className="muted" style={{ marginBottom: 20, fontSize: 15 }}>
-                Réservez votre session VR en ligne. Payez par T-Money ou Flooz.
+                Réservez votre session VR en ligne. Payez par T-Money.
               </p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
