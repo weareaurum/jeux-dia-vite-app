@@ -3144,7 +3144,14 @@ function TournamentsPage({ user }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage] = useState("calendar");
+  const [page, setPageState] = useState("calendar");
+  function setPage(p) {
+    setPageState(p);
+    // Keep URL clean (no hash) — just stay at root since this is a single-page app
+    if (window.location.hash) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }
   const loginInProgress = React.useRef(false);
   const [user, setUser] = useState(null);
   const [rawUsers, setRawUsers] = useState([]);
