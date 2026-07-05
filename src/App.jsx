@@ -10,6 +10,8 @@ import {
   ShieldBan,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { identify, reset, track } from "./lib/analytics";
+import { emailWelcome, emailBookingConfirmed, emailPaymentConfirmed, emailMembershipActivated } from "./lib/email";
 import jdLogo from "./assets/jdlo.png";
 
 function LogoMark({ size = 64, onClick }) {
@@ -498,6 +500,109 @@ function GlobalStyle() {
         padding: 12px 0;
         border-bottom: 1px solid var(--border);
       }
+
+      /* ── TABLET (≤ 900px) ── */
+      @media (max-width: 900px) {
+        .container { padding: 0 16px; }
+        .hero { padding: 18px; margin: 16px 0; }
+        .card { padding: 16px; }
+        .week-grid { gap: 4px; }
+        .day-box { padding: 8px 3px; font-size: 11px; }
+        .modal { padding: 18px; }
+        .admin-section-title { font-size: 15px; }
+      }
+
+      /* ── MOBILE (≤ 640px) ── */
+      @media (max-width: 640px) {
+        .container { padding: 0 12px; }
+
+        /* Header */
+        .header-inner { min-height: 56px; gap: 8px; }
+        .logo-btn { width: 48px; height: 48px; border-radius: 12px; padding: 6px; }
+
+        /* Nav: wrap tightly, smaller items */
+        .nav { gap: 2px; flex-wrap: wrap; }
+        .nav-item { padding: 7px 9px; font-size: 11px; border-radius: 8px; }
+        .btn-sm { padding: 7px 10px; font-size: 11px; }
+
+        /* Cards & hero */
+        .hero { padding: 14px; margin: 12px 0; }
+        .card { padding: 14px; margin-bottom: 12px; }
+
+        /* Calendar week grid — tighter on mobile */
+        .week-grid { gap: 3px; }
+        .day-box { padding: 6px 2px; border-radius: 8px; }
+        .day-box .day-num { font-size: 14px; }
+        .day-box .day-label { font-size: 9px; }
+
+        /* Slots: 2 columns already but tighten */
+        .slots-grid { gap: 6px; }
+        .slot { padding: 8px 6px; font-size: 11px; min-height: 48px; }
+
+        /* Grids collapse */
+        .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+
+        /* Admin */
+        .admin-section-title { font-size: 13px; gap: 6px; margin-bottom: 12px; }
+        .admin-card-soft { padding: 14px; }
+        .stat-icon-wrap { width: 40px; height: 40px; border-radius: 10px; }
+        .kpi-box { padding: 12px; }
+
+        /* List rows: stack label+buttons vertically when tight */
+        .list-row { flex-wrap: wrap; gap: 8px; }
+
+        /* Modal: near full-screen */
+        .modal-backdrop { padding: 8px; align-items: flex-end; }
+        .modal {
+          width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
+          border-radius: 16px 16px 12px 12px;
+          padding: 16px;
+        }
+
+        /* Toast: full width */
+        .toast-wrap { right: 8px; left: 8px; bottom: 8px; }
+        .toast { min-width: unset; width: 100%; }
+
+        /* Tags */
+        .tag { font-size: 10px; padding: 3px 8px; }
+
+        /* Buttons in flex rows */
+        .btn { border-radius: 8px; }
+      }
+
+      /* ── VERY SMALL (≤ 380px) ── */
+      @media (max-width: 380px) {
+        .nav-item { padding: 6px 7px; font-size: 10px; }
+        .day-box { padding: 4px 1px; }
+      }
+
+      /* ── Main content area ── */
+      .main-content { padding-top: 24px; padding-bottom: 90px; }
+      @media (max-width: 640px) {
+        .main-content { padding-top: 16px; padding-bottom: 100px; }
+      }
+
+      /* ── Bottom CTA bar ── */
+      .bottom-cta { padding: 14px; gap: 10px; }
+      @media (max-width: 640px) {
+        .bottom-cta { padding: 10px 12px; gap: 8px; }
+        .bottom-cta .btn { flex: 1; padding: 12px 8px; font-size: 13px; }
+      }
+
+      /* ── Admin user table rows ── */
+      @media (max-width: 640px) {
+        .admin-user-row { flex-direction: column; align-items: flex-start !important; gap: 8px !important; }
+        .admin-user-row .row-actions { align-self: flex-end; }
+        .week-nav { font-size: 11px !important; gap: 6px !important; }
+        .week-nav button { padding: 6px 10px !important; font-size: 11px !important; }
+      }
+
+      /* ── Scrollable admin tables on tablet ── */
+      @media (max-width: 900px) {
+        .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      }
     `}</style>
   );
 }
@@ -579,6 +684,7 @@ function makeUser(row) {
     memberStatus: active ? "active" : expired ? "expired" : null,
     daysLeft: expiry ? Math.max(0, Math.ceil((expiry - now) / 86400000)) : 0,
     memberExpiry: row.member_expiry || null,
+    loyaltyPoints: row.loyalty_points || 0,
   };
 }
 
@@ -700,12 +806,14 @@ function AuthModal({
   onGoogleLogin,
 }) {
   const [tab, setTab] = useState(mode || "login");
-  const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", password: "", confirmPassword: "" });
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const [pwError, setPwError] = useState("");
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === "confirmPassword" || key === "password") setPwError("");
   }
 
   async function submitLogin() {
@@ -716,6 +824,11 @@ function AuthModal({
 
   async function submitRegister() {
     if (submitting) return;
+    if (form.password !== form.confirmPassword) {
+      setPwError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    setPwError("");
     setSubmitting(true);
     try {
       const result = await onRegister(form);
@@ -765,18 +878,26 @@ function AuthModal({
         <>
           <div style={{ display: "grid", gap: 12 }}>
             <input
+              className="input"
               type="email"
+              name="email"
               placeholder="Email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
+              onInput={(e) => update("email", e.target.value)}
               disabled={submitting}
+              autoComplete="email"
             />
             <input
+              className="input"
               type="password"
+              name="password"
               placeholder="Mot de passe"
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
+              onInput={(e) => update("password", e.target.value)}
               disabled={submitting}
+              autoComplete="current-password"
               onKeyDown={(e) => e.key === "Enter" && submitLogin()}
             />
           </div>
@@ -806,32 +927,56 @@ function AuthModal({
         <>
           <div style={{ display: "grid", gap: 12 }}>
             <input
+              className="input"
               placeholder="Nom complet"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
               disabled={submitting}
+              autoComplete="name"
             />
             <input
+              className="input"
               placeholder="Téléphone"
               value={form.phone}
               onChange={(e) => update("phone", e.target.value)}
               disabled={submitting}
+              autoComplete="tel"
             />
             <input
+              className="input"
               type="email"
+              name="email"
               placeholder="Email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
+              onInput={(e) => update("email", e.target.value)}
               disabled={submitting}
+              autoComplete="email"
             />
             <input
+              className="input"
               type="password"
+              name="new-password"
               placeholder="Mot de passe"
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
+              onInput={(e) => update("password", e.target.value)}
               disabled={submitting}
+              autoComplete="new-password"
+            />
+            <input
+              className="input"
+              type="password"
+              name="confirm-password"
+              placeholder="Confirmer le mot de passe"
+              value={form.confirmPassword}
+              onChange={(e) => update("confirmPassword", e.target.value)}
+              onInput={(e) => update("confirmPassword", e.target.value)}
+              disabled={submitting}
+              autoComplete="new-password"
               onKeyDown={(e) => e.key === "Enter" && submitRegister()}
             />
+            {pwError && <p style={{ color: "#fca5a5", fontSize: 12, margin: 0 }}>{pwError}</p>}
           </div>
 
           <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
@@ -915,6 +1060,117 @@ function ResetPasswordModal({ onClose, onSubmit }) {
   );
 }
 
+function MembershipPayModal({ onClose, onConfirm }) {
+  const [paying, setPaying] = React.useState(false);
+  const [done, setDone] = React.useState(false);
+  const [promoCode, setPromoCode] = React.useState("");
+  const [promoResult, setPromoResult] = React.useState(null);
+  const [promoError, setPromoError] = React.useState("");
+  const [checking, setChecking] = React.useState(false);
+
+  const BASE_PRICE = 10000;
+  const promoDiscount = promoResult
+    ? promoResult.discount_type === "percent"
+      ? Math.round(BASE_PRICE * promoResult.discount_value / 100)
+      : Math.min(promoResult.discount_value, BASE_PRICE)
+    : 0;
+  const finalPrice = BASE_PRICE - promoDiscount;
+
+  async function checkPromo() {
+    if (!promoCode.trim()) return;
+    setPromoError(""); setPromoResult(null); setChecking(true);
+    try {
+      const sb = (await import("./lib/supabase")).supabase;
+      const { data, error } = await sb.from("promo_codes")
+        .select("*").eq("code", promoCode.trim().toUpperCase()).single();
+      if (error || !data) { setPromoError("Code invalide."); return; }
+      if (!data.is_active) { setPromoError("Code désactivé."); return; }
+      if (data.expires_at && new Date(data.expires_at) < new Date()) { setPromoError("Code expiré."); return; }
+      if (data.max_uses !== null && data.uses_count >= data.max_uses) { setPromoError("Code épuisé."); return; }
+      const mTypes = Array.isArray(data.applicable_to) ? data.applicable_to : (data.applicable_to ? [data.applicable_to] : []);
+      if (mTypes.length > 0 && !mTypes.includes("membership")) {
+        setPromoError("Ce code n'est pas valable pour le Pass Membre."); return;
+      }
+      setPromoResult(data);
+    } finally { setChecking(false); }
+  }
+
+  async function handleConfirm() {
+    setPaying(true);
+    await onConfirm(promoResult);
+    setDone(true);
+  }
+
+  if (done) {
+    return (
+      <Modal onClose={onClose}>
+        <div style={{ textAlign: "center", padding: "20px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
+          <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Demande en attente</h3>
+          <p className="muted" style={{ fontSize: 13 }}>L'admin activera votre pass après vérification du paiement.</p>
+          <button type="button" className="btn btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={onClose}>Compris</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 style={{ marginTop: 0 }}>Activer le Pass Membre</h3>
+      <div className="card" style={{ marginBottom: 0, background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.3)" }}>
+        <div className="list-row">
+          <span className="muted">Pass</span>
+          <strong>30 jours illimités</strong>
+        </div>
+        {promoResult && (
+          <div className="list-row">
+            <span className="muted">Réduction ({promoResult.code})</span>
+            <strong style={{ color: "#86efac" }}>-{promoResult.discount_type === "percent" ? `${promoResult.discount_value}%` : `${promoDiscount.toLocaleString()} CFA`}</strong>
+          </div>
+        )}
+        <div className="list-row" style={{ borderBottom: "none" }}>
+          <span className="muted">Montant</span>
+          <strong style={{ color: "#fcd34d" }}>{finalPrice === 0 ? "GRATUIT" : `${finalPrice.toLocaleString()} CFA`}</strong>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <input className="input" placeholder="Code promo (optionnel)" value={promoCode}
+          onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoResult(null); setPromoError(""); }}
+          onKeyDown={e => e.key === "Enter" && checkPromo()}
+          style={{ flex: 1, fontSize: 13 }} />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking || !promoCode.trim()}>
+          {checking ? "..." : "Appliquer"}
+        </button>
+      </div>
+      {promoError && <p style={{ color: "#fca5a5", fontSize: 12, margin: "4px 0 0" }}>{promoError}</p>}
+      {promoResult && <p style={{ color: "#86efac", fontSize: 12, margin: "4px 0 0" }}>Code appliqué !</p>}
+      <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "14px 16px", margin: "14px 0", fontSize: 13 }}>
+        <p style={{ margin: "0 0 6px", fontWeight: 700 }}>Envoyez 10,000 CFA via Mixx au :</p>
+        <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 93 69 54 63</p>
+        <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
+      </div>
+      <p className="muted" style={{ fontSize: 12 }}>Après paiement, cliquez "J'ai payé" — l'admin activera votre pass dès vérification.</p>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose} disabled={paying}>Annuler</button>
+        <button type="button" className="btn btn-primary" style={{ flex: 1, background: "var(--purple)" }} onClick={handleConfirm} disabled={paying}>
+          {paying ? "Envoi..." : "J'ai payé"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function loadPaydunyaScript() {
+  return new Promise((resolve, reject) => {
+    if (window.PDCheckout) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = "https://app.paydunya.com/assets/js/checkout.min.js";
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("PayDunya script failed to load"));
+    document.head.appendChild(s);
+  });
+}
+
 function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   const [promoCode, setPromoCode]   = React.useState("");
   const [promoResult, setPromoResult] = React.useState(null);
@@ -925,14 +1181,29 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   const [paying, setPaying]         = React.useState(false);
   const [paid, setPaid]             = React.useState(false);
   const [payError, setPayError]     = React.useState("");
+  const [guestCount, setGuestCount] = React.useState(0);
+  const [usePoints, setUsePoints]   = React.useState(false);
+  // PayDunya inline state
+  const [pdState, setPdState]       = React.useState(null); // null | "opening" | "checkout" | "checking" | "success"
+  const [pdBookingId, setPdBookingId] = React.useState(null);
 
-  const baseAmount  = isMember ? 0 : booking.amount;
-  const discount    = promoResult
+  const canHaveGuests = isMember && booking.durationMinutes >= 60;
+  const GUEST_PRICE = 3000;
+  const guestTotal = canHaveGuests ? guestCount * GUEST_PRICE : 0;
+
+  const baseAmount  = isMember ? guestTotal : booking.amount;
+  const promoDiscount = promoResult
     ? promoResult.type === "percent"
       ? Math.round(baseAmount * promoResult.discount / 100)
       : Math.min(promoResult.discount, baseAmount)
     : 0;
-  const finalAmount = Math.max(0, baseAmount - discount);
+  const availablePoints = user?.loyaltyPoints || 0;
+  // 10 pts = 1,000 CFA; max points discount capped at baseAmount - promoDiscount
+  const maxPointsDiscount = Math.floor(availablePoints / 10) * 1000;
+  const pointsDiscount = usePoints ? Math.min(maxPointsDiscount, Math.max(0, baseAmount - promoDiscount)) : 0;
+  const pointsUsed = pointsDiscount > 0 ? Math.ceil(pointsDiscount / 1000) * 10 : 0;
+  const discount = promoDiscount;
+  const finalAmount = Math.max(0, baseAmount - promoDiscount - pointsDiscount);
 
   async function checkPromo() {
     if (!promoCode.trim()) return;
@@ -944,19 +1215,127 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     if (error || !data) { setPromoError("Code invalide."); return; }
     if (data.expires_at && new Date(data.expires_at) < new Date()) { setPromoError("Code expiré."); return; }
     if (data.max_uses !== null && data.uses_count >= data.max_uses) { setPromoError("Code épuisé."); return; }
+
+    // Check applicable_to restriction (array — empty means all)
+    const types = Array.isArray(data.applicable_to) ? data.applicable_to : (data.applicable_to ? [data.applicable_to] : []);
+    if (types.length > 0) {
+      if (types.includes("membership") && !types.includes("15min") && !types.includes("1hr")) { setPromoError("Ce code est valable pour le Pass Membre uniquement."); return; }
+      if (types.includes("evenements") && !types.includes("15min") && !types.includes("1hr")) { setPromoError("Ce code est valable pour les Événements uniquement."); return; }
+      if (types.includes("15min") && !types.includes("1hr") && booking.durationMinutes >= 60) { setPromoError("Ce code est valable pour les sessions 15 min uniquement."); return; }
+      if (types.includes("1hr") && !types.includes("15min") && booking.durationMinutes < 60) { setPromoError("Ce code est valable pour les sessions 1 heure uniquement."); return; }
+    }
+
+    // Check applicable_days restriction
+    if (data.applicable_days?.length) {
+      const bookingDay = new Date(booking.dateStr + "T00:00:00").getDay();
+      if (!data.applicable_days.includes(bookingDay)) {
+        const dayNames = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+        setPromoError(`Ce code est valable seulement le : ${data.applicable_days.sort().map(d => dayNames[d]).join(", ")}.`);
+        return;
+      }
+    }
+
+    // Check applicable_time restriction
+    if (data.applicable_time_start && data.applicable_time_end && booking.time) {
+      const bookingMinutes = parseInt(booking.time.split(":")[0]) * 60 + parseInt(booking.time.split(":")[1]);
+      const startMinutes = parseInt(data.applicable_time_start.split(":")[0]) * 60 + parseInt(data.applicable_time_start.split(":")[1]);
+      const endMinutes = parseInt(data.applicable_time_end.split(":")[0]) * 60 + parseInt(data.applicable_time_end.split(":")[1]);
+      if (bookingMinutes < startMinutes || bookingMinutes >= endMinutes) {
+        setPromoError(`Ce code est valable entre ${data.applicable_time_start.slice(0,5)} et ${data.applicable_time_end.slice(0,5)}.`);
+        return;
+      }
+    }
+
     setPromoResult({ discount: data.discount_value, type: data.discount_type, id: data.id, code: data.code });
   }
 
   async function handlePay() {
-    if (isMember) { onConfirm(promoResult, 0); return; }
+    if (finalAmount === 0) { onConfirm(promoResult, 0, null, guestCount, pointsUsed); return; }
     setPaying(true); setPayError("");
     try {
-      await onConfirm(promoResult, finalAmount, network);
-      setPaid(true);
+      if (network === "paydunya") {
+        await handlePaydunyaInline();
+      } else {
+        await onConfirm(promoResult, finalAmount, network, guestCount, pointsUsed);
+        setPaid(true);
+      }
     } catch (err) {
       setPayError("Erreur. Réessayez.");
       setPaying(false);
     }
+  }
+
+  async function handlePaydunyaInline() {
+    setPdState("opening");
+    // Step 1: reserve the slot (creates booking with paydunya_pending)
+    const result = await onConfirm(promoResult, finalAmount, "paydunya", guestCount, pointsUsed);
+    const bookingId = result?.bookingId;
+    if (!bookingId) { setPaying(false); setPdState(null); return; }
+    setPdBookingId(bookingId);
+
+    // Step 2: create PayDunya invoice
+    const durationLabel = booking.durationMinutes >= 60 ? "1 heure" : "15 min";
+    const { data: inv, error: invErr } = await supabase.functions.invoke("paydunya-create-invoice", {
+      body: {
+        bookingId,
+        amount: finalAmount,
+        description: `Session VR ${durationLabel} — ${booking.dateStr} ${booking.time}`,
+        customerName: user?.name,
+        customerEmail: user?.email,
+        customerPhone: user?.phone,
+      },
+    });
+
+    if (invErr || !inv?.token) {
+      // Release the reserved slot
+      await supabase.from("bookings").delete().eq("id", bookingId);
+      setPdBookingId(null);
+      setPdState(null);
+      setPaying(false);
+      setPayError("Service PayDunya indisponible. Réessayez ou choisissez Mixx/Cash.");
+      return;
+    }
+
+    // Step 3: load PayDunya inline JS and open overlay
+    try {
+      await loadPaydunyaScript();
+    } catch (_) {
+      // Script failed to load — fallback: open PayDunya hosted page in same tab
+      window.location.href = inv.checkout_url || `https://app.paydunya.com/checkout/invoice/${inv.token}`;
+      return;
+    }
+
+    setPdState("checkout");
+    setPaying(false);
+    // PDCheckout.open shows an overlay on top of the current page
+    if (window.PDCheckout?.open) {
+      window.PDCheckout.open(inv.token);
+    } else if (window.PDCheckout?.loadPDCheckout) {
+      window.PDCheckout.loadPDCheckout(inv.token);
+    }
+  }
+
+  async function checkPaydunyaStatus() {
+    if (!pdBookingId) return;
+    setPdState("checking");
+    const { data } = await supabase
+      .from("bookings").select("payment_status").eq("id", pdBookingId).single();
+    if (data?.payment_status === "paid") {
+      setPdState("success");
+    } else {
+      setPdState("checkout");
+      setPayError("Paiement non encore reçu. Complétez le paiement puis vérifiez à nouveau.");
+    }
+  }
+
+  async function cancelPaydunya() {
+    if (pdBookingId) {
+      await supabase.from("bookings").delete().eq("id", pdBookingId);
+    }
+    setPdBookingId(null);
+    setPdState(null);
+    setPayError("");
+    setPaying(false);
   }
 
   if (paid) {
@@ -966,12 +1345,68 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
           <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Réservation en attente</h3>
           <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid var(--accent)", borderRadius: 12, padding: "16px", margin: "16px 0", textAlign: "left" }}>
-            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via T-Money au :</p>
-            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 70 16 41 03</p>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via Mixx au :</p>
+            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 93 69 54 63</p>
             <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
           </div>
           <p className="muted" style={{ fontSize: 13 }}>L'admin confirmera votre paiement et vous serez notifié(e) dès que votre réservation est validée.</p>
           <button type="button" className="btn btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={onClose}>Compris</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  if (pdState === "success") {
+    return (
+      <Modal onClose={onClose}>
+        <div style={{ textAlign: "center", padding: "20px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+          <h3 style={{ color: "#6ee7b7", marginTop: 0 }}>Paiement confirmé !</h3>
+          <p className="muted" style={{ fontSize: 14 }}>Votre réservation est validée. À bientôt chez Jeux Dia VR !</p>
+          <button type="button" className="btn btn-primary" style={{ marginTop: 16, width: "100%" }} onClick={onClose}>Fermer</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  if (pdState === "opening" || pdState === "checkout" || pdState === "checking") {
+    return (
+      <Modal onClose={onClose}>
+        <div style={{ textAlign: "center", padding: "20px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>💳</div>
+          <h3 style={{ marginTop: 0 }}>Paiement PayDunya</h3>
+          {pdState === "opening" && (
+            <p className="muted">Ouverture du paiement en cours…</p>
+          )}
+          {(pdState === "checkout" || pdState === "checking") && (
+            <>
+              <p style={{ marginBottom: 4 }}>
+                La fenêtre PayDunya est ouverte sur cette page.
+              </p>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+                Complétez le paiement de <strong>{formatCFA(finalAmount)}</strong> dans la fenêtre PayDunya, puis cliquez sur le bouton ci-dessous.
+              </p>
+              {payError && <p style={{ color: "#fca5a5", fontSize: 13, marginBottom: 12 }}>{payError}</p>}
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: "100%", marginBottom: 10 }}
+                onClick={checkPaydunyaStatus}
+                disabled={pdState === "checking"}
+              >
+                {pdState === "checking" ? "Vérification…" : "✓ J'ai payé — Vérifier"}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: "100%", color: "#fca5a5" }}
+            onClick={cancelPaydunya}
+            disabled={pdState === "opening" || pdState === "checking"}
+          >
+            Annuler le paiement
+          </button>
         </div>
       </Modal>
     );
@@ -992,25 +1427,80 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           <span className="muted">Durée</span>
           <strong>{booking.durationLabel}</strong>
         </div>
-        {!isMember && promoResult && (
+        {(promoResult || pointsDiscount > 0) && (
           <>
             <div className="list-row">
               <span className="muted">Prix de base</span>
               <span>{formatCFA(baseAmount)}</span>
             </div>
-            <div className="list-row">
-              <span className="muted" style={{ color: "#6ee7b7" }}>Réduction ({promoResult.code})</span>
-              <span style={{ color: "#6ee7b7" }}>−{formatCFA(discount)}</span>
-            </div>
+            {promoResult && (
+              <div className="list-row">
+                <span className="muted" style={{ color: "#6ee7b7" }}>Code {promoResult.code}</span>
+                <span style={{ color: "#6ee7b7" }}>−{formatCFA(promoDiscount)}</span>
+              </div>
+            )}
+            {pointsDiscount > 0 && (
+              <div className="list-row">
+                <span className="muted" style={{ color: "#fbbf24" }}>Points ({pointsUsed} pts)</span>
+                <span style={{ color: "#fbbf24" }}>−{formatCFA(pointsDiscount)}</span>
+              </div>
+            )}
           </>
         )}
-        <div className="list-row" style={{ borderBottom: "none" }}>
+        <div className="list-row" style={{ borderBottom: (canHaveGuests || (availablePoints >= 10 && baseAmount > 0)) ? undefined : "none" }}>
           <span className="muted">Montant</span>
-          <strong style={{ color: promoResult ? "#6ee7b7" : "var(--accent)" }}>
-            {isMember ? "Gratuit (membre)" : formatCFA(finalAmount)}
+          <strong style={{ color: (promoResult || pointsDiscount > 0) ? "#6ee7b7" : "var(--accent)" }}>
+            {finalAmount === 0 ? (isMember ? "Gratuit (membre)" : "Gratuit") : formatCFA(finalAmount)}
           </strong>
         </div>
+        {availablePoints >= 10 && baseAmount > 0 && !isMember && (
+          <div className="list-row" style={{ borderBottom: canHaveGuests ? undefined : "none", alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 13 }}>⭐ {availablePoints} points disponibles</span>
+            <button type="button"
+              onClick={() => setUsePoints(u => !u)}
+              style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                border: `1.5px solid ${usePoints ? "#fbbf24" : "var(--border)"}`,
+                background: usePoints ? "rgba(251,191,36,0.12)" : "transparent",
+                color: usePoints ? "#fbbf24" : "var(--muted)" }}>
+              {usePoints ? `−${formatCFA(pointsDiscount)} appliqué` : "Utiliser mes points"}
+            </button>
+          </div>
+        )}
+        {canHaveGuests && (
+          <div className="list-row" style={{ borderBottom: "none", alignItems: "center" }}>
+            <span className="muted">Invités (3,000 CFA / pers.)</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "2px 10px", fontSize: 18 }}
+                onClick={() => setGuestCount(g => Math.max(0, g - 1))}>−</button>
+              <span style={{ fontWeight: 700, minWidth: 16, textAlign: "center" }}>{guestCount}</span>
+              <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "2px 10px", fontSize: 18 }}
+                onClick={() => setGuestCount(g => Math.min(2, g + 1))}>+</button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {isMember && canHaveGuests && guestCount > 0 && (
+        <>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Paiement pour {guestCount} invité{guestCount > 1 ? "s" : ""} ({formatCFA(finalAmount)})</p>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            {["tmoney", "cash"].map((n) => (
+              <button key={n} type="button" onClick={() => setNetwork(n)}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${network === n ? "var(--accent)" : "var(--border)"}`,
+                  background: network === n ? "rgba(0,245,212,0.1)" : "transparent",
+                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+                {n === "tmoney" ? "Mixx" : "Cash"}
+              </button>
+            ))}
+          </div>
+          {network === "tmoney" && (
+            <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
+              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 93 69 54 63</strong> via Mixx pour les invités.
+            </div>
+          )}
+          {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
+        </>
+      )}
 
       {!isMember && (
         <>
@@ -1031,7 +1521,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
 
           <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Mode de paiement</p>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {["tmoney", "cash"].map((n) => (
+            {["tmoney", "paydunya", "cash"].map((n) => (
               <button
                 key={n}
                 type="button"
@@ -1042,13 +1532,18 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
                   color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13,
                 }}
               >
-                {n === "tmoney" ? "T-Money" : "Cash"}
+                {n === "tmoney" ? "Mixx" : n === "paydunya" ? "PayDunya" : "Cash"}
               </button>
             ))}
           </div>
           {network === "tmoney" && (
             <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 70 16 41 03</strong> via T-Money. Votre réservation sera confirmée après vérification.
+              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 93 69 54 63</strong> via Mixx. Votre réservation sera confirmée après vérification.
+            </div>
+          )}
+          {network === "paydunya" && (
+            <div style={{ background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.4)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
+              Vous serez redirigé(e) vers PayDunya pour payer <strong>{formatCFA(finalAmount)}</strong> en ligne (Mobile Money, carte, etc.).
             </div>
           )}
           {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
@@ -1060,7 +1555,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           Annuler
         </button>
         <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={handlePay} disabled={paying}>
-          {paying ? "Envoi..." : isMember ? "Confirmer" : `Payer ${formatCFA(finalAmount)}`}
+          {paying ? "..." : isMember && finalAmount === 0 ? "Confirmer" : network === "paydunya" ? `Payer avec PayDunya →` : `Payer ${formatCFA(finalAmount)}`}
         </button>
       </div>
     </Modal>
@@ -1296,7 +1791,7 @@ function AdminSlotModal({ dateStr, time, onClose, onBlock, onBook }) {
             {[
               { id: "cash", label: "💵 Cash" },
               { id: "card", label: "💳 Carte" },
-              { id: "tmoney", label: "📱 T-Money" },
+              { id: "tmoney", label: "📱 Mixx" },
               { id: "flooz", label: "📱 Flooz" },
             ].map((pm) => (
               <button
@@ -1574,10 +2069,16 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, on
             </div>
             <div className="muted">{user?.email}</div>
             <div className="muted">{user?.phone}</div>
-            {user?.memberStatus === "active" && (
-              <div style={{ marginTop: 10 }}>
-                <span className="tag tag-green">MEMBRE ACTIF</span>
-              </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {user?.memberStatus === "active" && <span className="tag tag-green">MEMBRE ACTIF</span>}
+              {user?.loyaltyPoints > 0 && (
+                <span className="tag tag-amber">⭐ {user.loyaltyPoints} points</span>
+              )}
+            </div>
+            {user?.loyaltyPoints >= 10 && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {Math.floor(user.loyaltyPoints / 10) * 1000} CFA utilisables à la prochaine réservation (10 pts = 1,000 CFA)
+              </p>
             )}
             <div style={{ marginTop: 14 }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={onChangePassword}>
@@ -1625,7 +2126,12 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, on
                 </div>
                 {b.paymentStatus === "pending" && (b.paymentMethod === "tmoney" || b.paymentMethod === "flooz") && (
                   <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
-                    Envoyez <strong>{formatCFA(b.amount)}</strong> au <strong>+228 70 16 41 03</strong> via T-Money pour valider votre réservation.
+                    Envoyez <strong>{formatCFA(b.amount)}</strong> au <strong>+228 93 69 54 63</strong> via Mixx pour valider votre réservation.
+                  </div>
+                )}
+                {b.paymentStatus === "paydunya_pending" && (
+                  <div style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.4)", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
+                    Paiement PayDunya en cours de vérification. Confirmation automatique sous peu.
                   </div>
                 )}
                 {b.paymentStatus === "rejected" && (
@@ -1945,10 +2451,15 @@ function EventsPage({ user, onSubmit }) {
   );
 }
 
+const DAY_LABELS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+
 function PromoCodesSection({ onRefresh }) {
   const [codes, setCodes] = React.useState([]);
-  const [form, setForm] = React.useState({ code: "", discount_type: "fixed", discount_value: "", max_uses: "", expires_at: "" });
+  const EMPTY_FORM = { code: "", discount_type: "fixed", discount_value: "", max_uses: "", expires_at: "", applicable_to: [], applicable_days: [], applicable_time_start: "", applicable_time_end: "" };
+  const [form, setForm] = React.useState(EMPTY_FORM);
   const [loading, setLoading] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [actionError, setActionError] = React.useState("");
 
   React.useEffect(() => { fetchCodes(); }, []);
 
@@ -1957,6 +2468,15 @@ function PromoCodesSection({ onRefresh }) {
       .from("promo_codes").select("*").order("created_at", { ascending: false });
     if (error) { console.error("Promo codes fetch error:", error); return; }
     setCodes(data || []);
+  }
+
+  function toggleDay(d) {
+    setForm(f => ({
+      ...f,
+      applicable_days: f.applicable_days.includes(d)
+        ? f.applicable_days.filter(x => x !== d)
+        : [...f.applicable_days, d],
+    }));
   }
 
   async function handleCreate() {
@@ -1970,16 +2490,42 @@ function PromoCodesSection({ onRefresh }) {
       expires_at: form.expires_at || null,
       is_active: true,
       uses_count: 0,
+      applicable_to: form.applicable_to,
+      applicable_days: form.applicable_days.length > 0 ? form.applicable_days : null,
+      applicable_time_start: form.applicable_time_start || null,
+      applicable_time_end: form.applicable_time_end || null,
     });
     setLoading(false);
     if (error) { alert(error.message); return; }
-    setForm({ code: "", discount_type: "fixed", discount_value: "", max_uses: "", expires_at: "" });
+    setForm(EMPTY_FORM);
     fetchCodes();
   }
 
   async function toggleActive(id, current) {
-    await (await import("./lib/supabase")).supabase.from("promo_codes").update({ is_active: !current }).eq("id", id);
+    setActionError("");
+    const sb = (await import("./lib/supabase")).supabase;
+    const { error } = await sb.from("promo_codes").update({ is_active: !current }).eq("id", id);
+    if (error) { setActionError(`Erreur : ${error.message}`); return; }
     fetchCodes();
+  }
+
+  async function deleteCode(id) {
+    setActionError("");
+    const sb = (await import("./lib/supabase")).supabase;
+    const { error } = await sb.from("promo_codes").delete().eq("id", id);
+    if (error) { setActionError(`Erreur : ${error.message}`); return; }
+    setConfirmDelete(null);
+    fetchCodes();
+  }
+
+  function promoRestrictionLabel(c) {
+    const parts = [];
+    const types = Array.isArray(c.applicable_to) ? c.applicable_to : (c.applicable_to ? [c.applicable_to] : []);
+    const typeMap = { "15min": "15 min", "1hr": "1 heure", "membership": "Pass Membre", "evenements": "Événements" };
+    if (types.length > 0) parts.push(types.map(t => typeMap[t] || t).join(", ") + " seulement");
+    if (c.applicable_days?.length) parts.push(c.applicable_days.sort().map(d => DAY_LABELS[d]).join(", "));
+    if (c.applicable_time_start && c.applicable_time_end) parts.push(`${c.applicable_time_start.slice(0,5)}–${c.applicable_time_end.slice(0,5)}`);
+    return parts.length ? parts.join(" · ") : null;
   }
 
   return (
@@ -2034,33 +2580,98 @@ function PromoCodesSection({ onRefresh }) {
             style={{ flex: 1 }}
           />
         </div>
+
+        {/* Restrictions */}
+        <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, marginBottom: 2 }}>RESTRICTIONS (optionnel)</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)", minWidth: 60 }}>Session</span>
+            {[["15min", "15 min"], ["1hr", "1 heure"], ["membership", "Pass Membre"], ["evenements", "Événements"]].map(([val, label]) => {
+              const selected = (form.applicable_to || []).includes(val);
+              return (
+                <button key={val} type="button"
+                  onClick={() => setForm(f => {
+                    const cur = f.applicable_to || [];
+                    return { ...f, applicable_to: selected ? cur.filter(x => x !== val) : [...cur, val] };
+                  })}
+                  style={{ padding: "4px 12px", borderRadius: 8, border: `1.5px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                    background: selected ? "rgba(0,245,212,0.1)" : "transparent",
+                    color: selected ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  {label}
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>{(form.applicable_to || []).length === 0 ? "(toutes)" : ""}</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)", minWidth: 60 }}>Jours</span>
+            {DAY_LABELS.map((d, i) => (
+              <button key={i} type="button"
+                onClick={() => toggleDay(i)}
+                style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${form.applicable_days.includes(i) ? "var(--accent)" : "var(--border)"}`,
+                  background: form.applicable_days.includes(i) ? "rgba(0,245,212,0.1)" : "transparent",
+                  color: form.applicable_days.includes(i) ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                {d}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)", minWidth: 60 }}>Horaire</span>
+            <input className="input" type="time" value={form.applicable_time_start}
+              onChange={e => setForm(f => ({ ...f, applicable_time_start: e.target.value }))}
+              style={{ flex: 1, fontSize: 13 }} />
+            <span style={{ color: "var(--muted)", fontSize: 12 }}>à</span>
+            <input className="input" type="time" value={form.applicable_time_end}
+              onChange={e => setForm(f => ({ ...f, applicable_time_end: e.target.value }))}
+              style={{ flex: 1, fontSize: 13 }} />
+          </div>
+        </div>
+
         <button type="button" className="btn btn-primary btn-sm" onClick={handleCreate} disabled={loading}>
           {loading ? "..." : "Créer le code"}
         </button>
       </div>
 
+      {actionError && <p style={{ color: "#fca5a5", fontSize: 12, marginBottom: 8 }}>{actionError}</p>}
       {codes.length === 0 ? (
         <p className="muted">Aucun code promo.</p>
       ) : (
         codes.map((c) => (
-          <div key={c.id} className="list-row">
-            <div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <strong>{c.code}</strong>
-                <span className={`tag ${c.is_active ? "tag-green" : "tag-amber"}`}>
-                  {c.is_active ? "ACTIF" : "INACTIF"}
-                </span>
+          <div key={c.id} className="list-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <strong>{c.code}</strong>
+                  <span className={`tag ${c.is_active ? "tag-green" : "tag-amber"}`}>
+                    {c.is_active ? "ACTIF" : "INACTIF"}
+                  </span>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {c.discount_type === "percent" ? `${c.discount_value}%` : formatCFA(c.discount_value)} de réduction
+                  {" · "}{c.uses_count} utilisé{c.uses_count !== 1 ? "s" : ""}
+                  {c.max_uses ? ` / ${c.max_uses}` : " (illimité)"}
+                  {c.expires_at ? ` · Expire ${c.expires_at}` : ""}
+                </div>
+                {promoRestrictionLabel(c) && (
+                  <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2 }}>↳ {promoRestrictionLabel(c)}</div>
+                )}
               </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                {c.discount_type === "percent" ? `${c.discount_value}%` : formatCFA(c.discount_value)} de réduction
-                {" · "}{c.uses_count} utilisé{c.uses_count !== 1 ? "s" : ""}
-                {c.max_uses ? ` / ${c.max_uses}` : " (illimité)"}
-                {c.expires_at ? ` · Expire ${c.expires_at}` : ""}
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleActive(c.id, c.is_active)}>
+                  {c.is_active ? "Désactiver" : "Activer"}
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => setConfirmDelete(c.id)}>
+                  ✕
+                </button>
               </div>
             </div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleActive(c.id, c.is_active)}>
-              {c.is_active ? "Désactiver" : "Activer"}
-            </button>
+            {confirmDelete === c.id && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", background: "rgba(252,100,100,0.08)", border: "1px solid rgba(252,100,100,0.3)", borderRadius: 8, padding: "8px 12px" }}>
+                <span style={{ flex: 1, fontSize: 13 }}>Supprimer <strong>{c.code}</strong> ?</span>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => deleteCode(c.id)}>Oui, supprimer</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(null)}>Annuler</button>
+              </div>
+            )}
           </div>
         ))
       )}
@@ -2068,7 +2679,136 @@ function PromoCodesSection({ onRefresh }) {
   );
 }
 
-function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onRejectPayment, onAdminCancel, onConfirmEvent, onCancelEvent }) {
+const MONTH_LABELS = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+
+function MonthlyRevenueChart({ paidBookings }) {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth(), label: MONTH_LABELS[d.getMonth()] });
+  }
+  const data = months.map(({ year, month, label }) => {
+    const total = paidBookings
+      .filter(b => { const d = new Date(b.dateStr); return d.getFullYear() === year && d.getMonth() === month; })
+      .reduce((s, b) => s + Number(b.amount || 0), 0);
+    return { label, total };
+  });
+  const maxVal = Math.max(...data.map(d => d.total), 1);
+  const BAR_W = 36, GAP = 12, H = 120, PAD_LEFT = 50;
+  const totalW = PAD_LEFT + (BAR_W + GAP) * 6 - GAP + 10;
+  return (
+    <div className="card admin-card-soft">
+      <div className="orbitron admin-section-title">
+        <TrendingUp size={18} color="var(--accent)" />
+        REVENUS 6 DERNIERS MOIS
+      </div>
+      <svg viewBox={`0 0 ${totalW} ${H + 44}`} style={{ width: "100%", overflow: "visible" }}>
+        {/* Y-axis labels */}
+        {[0, 0.5, 1].map((frac) => {
+          const y = H - frac * H;
+          const val = Math.round(frac * maxVal / 1000) * 1000;
+          return (
+            <g key={frac}>
+              <line x1={PAD_LEFT} y1={y} x2={totalW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+              <text x={PAD_LEFT - 6} y={y + 4} textAnchor="end" fill="rgba(255,255,255,0.35)" fontSize="10">
+                {val >= 1000 ? `${val/1000}k` : val}
+              </text>
+            </g>
+          );
+        })}
+        {/* Bars */}
+        {data.map(({ label, total }, i) => {
+          const barH = total > 0 ? Math.max(4, (total / maxVal) * H) : 0;
+          const x = PAD_LEFT + i * (BAR_W + GAP);
+          const isCurrentMonth = i === 5;
+          return (
+            <g key={label}>
+              <rect x={x} y={H - barH} width={BAR_W} height={barH} rx={4}
+                fill={isCurrentMonth ? "url(#barGrad)" : "rgba(0,245,212,0.25)"} />
+              <text x={x + BAR_W / 2} y={H + 14} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="11">{label}</text>
+              {total > 0 && (
+                <text x={x + BAR_W / 2} y={H - barH - 5} textAnchor="middle" fill="var(--accent)" fontSize="10" fontWeight="700">
+                  {total >= 1000 ? `${(total/1000).toFixed(1)}k` : total}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        <defs>
+          <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#00f5d4" />
+            <stop offset="100%" stopColor="#7c3aed" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
+}
+
+function CustomerProfileModal({ targetUser, bookings, onClose }) {
+  const userBookings = bookings.filter(b =>
+    b.isPrimary && (b.type === "booked" || b.type === "member") &&
+    (b.userId === targetUser.id || b.phone === targetUser.phone)
+  ).sort((a, b) => new Date(`${b.dateStr}T${b.time}`) - new Date(`${a.dateStr}T${a.time}`));
+
+  const totalPaid = userBookings.filter(b => b.paymentStatus === "paid" && b.type === "booked")
+    .reduce((s, b) => s + Number(b.amount || 0), 0);
+  const sessionCount = userBookings.filter(b => b.paymentStatus === "paid" || b.type === "member").length;
+  const lastVisit = userBookings[0];
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(124,58,237,0.2)", border: "2px solid rgba(124,58,237,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "#c4b5fd" }}>
+          {(targetUser.full_name || "?").charAt(0).toUpperCase()}
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 17 }}>{targetUser.full_name || "—"}</div>
+          <div className="muted" style={{ fontSize: 12 }}>{targetUser.email || "—"}</div>
+          <div className="muted" style={{ fontSize: 12 }}>{targetUser.phone || "—"}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+        {[
+          { label: "Total dépensé", value: formatCFA(totalPaid), color: "var(--accent)" },
+          { label: "Sessions", value: sessionCount, color: "#c4b5fd" },
+          { label: "Points fidélité", value: `⭐ ${targetUser.loyalty_points || 0}`, color: "#fbbf24" },
+          { label: "Statut", value: targetUser.is_member ? "Membre" : targetUser.role === "admin" ? "Admin" : "Client", color: targetUser.is_member ? "#6ee7b7" : "var(--muted)" },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "10px 12px" }}>
+            <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color, marginTop: 2 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {lastVisit && (
+        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+          Dernière visite : {lastVisit.dateStr} à {lastVisit.time}
+        </div>
+      )}
+
+      <div style={{ maxHeight: 200, overflowY: "auto", display: "grid", gap: 6 }}>
+        {userBookings.length === 0 ? (
+          <p className="muted">Aucune réservation.</p>
+        ) : userBookings.map(b => (
+          <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}>
+            <span>{b.dateStr} · {b.time} · {b.durationLabel}</span>
+            <span style={{ color: b.type === "member" ? "#6ee7b7" : b.paymentStatus === "paid" ? "var(--accent)" : "#f59e0b", fontWeight: 700 }}>
+              {b.type === "member" ? "Membre" : b.paymentStatus === "paid" ? formatCFA(b.amount) : "En attente"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <button type="button" className="btn btn-ghost" style={{ marginTop: 14, width: "100%" }} onClick={onClose}>Fermer</button>
+    </Modal>
+  );
+}
+
+function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onRejectPayment, onAdminCancel, onConfirmEvent, onCancelEvent, onConfirmMembership, onRejectMembership }) {
   const today = new Date();
   const todayStr = toDateStr(today);
   const startOfWeek = getStartOfWeek(today);
@@ -2077,6 +2817,30 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
   // Date range filter state
   const [reportFrom, setReportFrom] = React.useState("");
   const [reportTo, setReportTo] = React.useState("");
+  const [profileTarget, setProfileTarget] = React.useState(null);
+
+  function sendDailySummary() {
+    const todayList = primaryBookings.filter(b => b.dateStr === todayStr)
+      .sort((a, b) => a.time.localeCompare(b.time));
+    if (todayList.length === 0) {
+      const msg = `📋 *Résumé du jour — Jeux Dia VR*\n📅 ${todayStr}\n\nAucune réservation aujourd'hui.`;
+      window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+      return;
+    }
+    const lines = todayList.map(b =>
+      `🕐 ${b.time} — ${b.name || "Client"} · ${b.durationLabel} · ${b.type === "member" ? "Membre" : formatCFA(b.amount)} · ${b.paymentStatus === "paid" ? "✅ Payé" : "⏳ En attente"}`
+    );
+    const totalRevenue = todayList.filter(b => b.paymentStatus === "paid").reduce((s, b) => s + Number(b.amount || 0), 0);
+    const msg = [
+      `📋 *Résumé du jour — Jeux Dia VR*`,
+      `📅 ${todayStr} · ${todayList.length} réservation${todayList.length > 1 ? "s" : ""}`,
+      ``,
+      ...lines,
+      ``,
+      `💰 Revenus confirmés : ${formatCFA(totalRevenue)}`,
+    ].join("\n");
+    window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+  }
 
   const primaryBookings = bookings.filter(
     (b) => b.isPrimary && (b.type === "booked" || b.type === "member")
@@ -2162,6 +2926,9 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           Vue d’ensemble des ventes, réservations et activité du jour.
         </div>
         <div className="admin-highlight-line" />
+        <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 10, color: "#6ee7b7", border: "1px solid rgba(110,231,183,0.3)" }} onClick={sendDailySummary}>
+          📋 Envoyer résumé du jour WhatsApp
+        </button>
       </div>
 
       <div className="grid-4">
@@ -2185,7 +2952,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
 
         <DashboardStatCard
           icon={Smartphone}
-          title="T-Money / Flooz"
+          title="Mixx / Flooz"
           value={`${formatCFA(tmoneySales)} / ${formatCFA(floozSales)}`}
           subtitle="Paiements mobiles réels"
           color="#c4b5fd"
@@ -2202,9 +2969,33 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
         />
       </div>
 
+      {/* ── Pending membership requests ── */}
+      {(() => {
+        const pendingMembers = users.filter(u => u.membership_pending);
+        if (pendingMembers.length === 0) return null;
+        return (
+          <div className="card" style={{ border: "1px solid rgba(124,58,237,0.5)", background: "rgba(124,58,237,0.06)" }}>
+            <div className="orbitron admin-section-title" style={{ color: "#a78bfa" }}>
+              💜 DEMANDES PASS MEMBRE ({pendingMembers.length})
+            </div>
+            {pendingMembers.map(u => (
+              <div key={u.id} className="list-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{u.full_name || "Client"}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{u.phone || u.email || "—"} · 10,000 CFA</div>
+                </div>
+                <span style={{ fontWeight: 700, color: "#fcd34d" }}>10,000 CFA</span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmMembership(u)}>✓ Activer</button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => onRejectMembership(u)}>✕ Rejeter</button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* ── Pending payment approvals ── */}
       {(() => {
-        const pendingPay = primaryBookings.filter(b => b.paymentStatus === "pending" && Number(b.amount || 0) > 0);
+        const pendingPay = primaryBookings.filter(b => (b.paymentStatus === "pending" || b.paymentStatus === "paydunya_pending") && Number(b.amount || 0) > 0);
         if (pendingPay.length === 0) return null;
         return (
           <div className="card" style={{ border: "1px solid rgba(245,158,11,0.5)", background: "rgba(245,158,11,0.06)" }}>
@@ -2215,7 +3006,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
               <div key={b.id} className="list-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>{b.name || "Client"}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>{b.dateStr} à {b.time} · {b.durationLabel} · {b.paymentMethod === "tmoney" ? "T-Money" : b.paymentMethod === "flooz" ? "Flooz" : b.paymentMethod || "—"}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{b.dateStr} à {b.time} · {b.durationLabel} · {b.paymentMethod === "tmoney" ? "Mixx" : b.paymentMethod === "flooz" ? "Flooz" : b.paymentMethod === "paydunya" ? "PayDunya 🔄" : b.paymentMethod || "—"}</div>
                 </div>
                 <span style={{ fontWeight: 700, color: "#f59e0b" }}>{formatCFA(b.amount)}</span>
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => onConfirmPayment(b)}>✓ Confirmer</button>
@@ -2234,7 +3025,7 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           </div>
 
           <div style={{ display: "grid", gap: 18 }}>
-            <RevenueSourceBar label="T-Money (Togocel)" value={tmoneySales} color="#60a5fa" width={sourceWidth(tmoneySales)} />
+            <RevenueSourceBar label="Mixx (Togocel)" value={tmoneySales} color="#60a5fa" width={sourceWidth(tmoneySales)} />
             <RevenueSourceBar label="Flooz (Moov Africa)" value={floozSales} color="#fb923c" width={sourceWidth(floozSales)} />
             <RevenueSourceBar label="Cash" value={cashSales} color="#6ee7b7" width={sourceWidth(cashSales)} />
             <RevenueSourceBar label="Carte bancaire" value={cardSales} color="#a78bfa" width={sourceWidth(cardSales)} />
@@ -2314,6 +3105,8 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
           </div>
         </div>
       </div>
+
+      <MonthlyRevenueChart paidBookings={paidBookings} />
 
       <div className="card admin-card-soft">
         <div className="orbitron admin-section-title">
@@ -2557,21 +3350,29 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
         </div>
 
         {users.map((u) => (
-          <div key={u.id} className="list-row">
-            <div>
-              <div>{u.full_name || "—"}</div>
+          <div key={u.id} className="list-row" style={{ cursor: "pointer" }} onClick={() => setProfileTarget(u)}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600 }}>{u.full_name || "—"}</div>
               <div className="muted" style={{ fontSize: 12 }}>{u.email || "—"} · {u.phone || "—"}</div>
+              {u.loyalty_points > 0 && <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 1 }}>⭐ {u.loyalty_points} points</div>}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span className={`tag ${u.role === "admin" ? "tag-purple" : u.is_member ? "tag-green" : "tag-amber"}`}>
                 {u.role === "admin" ? "ADMIN" : u.is_member ? "MEMBRE" : "CLIENT"}
               </span>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditUser(u)}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); onEditUser(u); }}>
                 Modifier
               </button>
             </div>
           </div>
         ))}
+        {profileTarget && (
+          <CustomerProfileModal
+            targetUser={profileTarget}
+            bookings={bookings}
+            onClose={() => setProfileTarget(null)}
+          />
+        )}
       </div>
 
       <div className="card admin-card-soft">
@@ -2749,7 +3550,7 @@ function RegisterTournamentModal({ tournament, user, onClose, onRegistered }) {
               <div>
                 <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>Réseau de paiement</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {[{ id: "tmoney", label: "T-Money" }].map(n => (
+                  {[{ id: "tmoney", label: "Mixx" }].map(n => (
                     <button
                       key={n.id}
                       type="button"
@@ -3168,6 +3969,7 @@ export default function App() {
   const [bookingDraft, setBookingDraft] = useState(null);
   const [blockDraft, setBlockDraft] = useState(null);
   const [editUser, setEditUser] = useState(null);
+  const [membershipPayModal, setMembershipPayModal] = useState(false);
   const [toasts, setToasts] = useState([]);
 
   const resetUiState = useCallback(() => {
@@ -3340,7 +4142,7 @@ export default function App() {
     // No separate loadCurrentUser() call needed — avoids race with INITIAL_SESSION.
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
-        if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); return; }
+        if (event === "SIGNED_OUT") { setUser(null); setPage("calendar"); loadData(null); return; }
         if (event === "PASSWORD_RECOVERY") { setResetModal(true); return; }
         if (event === "SIGNED_IN") {
           if (!loginInProgress.current) await loadCurrentUser(session?.user, { navigate: true });
@@ -3362,6 +4164,19 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe?.();
   }, [loadCurrentUser, loadData]);
 
+  // Handle return from PayDunya (fallback: only reached if PDCheckout.js fails and we fell back to full redirect)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pdStatus = params.get("paydunya");
+    if (!pdStatus) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (pdStatus === "completed") {
+      addToast("Paiement PayDunya reçu ! Confirmation en cours.", "success");
+    } else if (pdStatus === "cancelled") {
+      addToast("Paiement annulé.", "error");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function logAdminAction(actionType, targetTable, targetId, details = {}) {
     if (!user?.isAdmin) return;
     const { error } = await supabase.from("admin_activity_logs").insert({
@@ -3382,12 +4197,22 @@ export default function App() {
     }
     loginInProgress.current = true;
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const authPromise = supabase.auth.signInWithPassword({
         email: form.email.trim(),
         password: form.password,
       });
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 15000)
+      );
+      const { data, error } = await Promise.race([authPromise, timeout]);
       if (error) {
-        addToast(error.message || "Connexion impossible.", "error");
+        const msg = error.message || "";
+        const fr = msg.includes("Invalid login credentials") ? "Email ou mot de passe incorrect."
+          : msg.includes("Email not confirmed") ? "Confirmez votre email avant de vous connecter."
+          : msg.includes("Too many requests") ? "Trop de tentatives. Réessayez dans quelques minutes."
+          : msg.includes("User not found") ? "Aucun compte avec cet email."
+          : msg || "Connexion impossible.";
+        addToast(fr, "error");
         return;
       }
       const row = await ensureUserProfile(data.user);
@@ -3401,12 +4226,17 @@ export default function App() {
         member_expiry: null,
       });
       setUser(built);
+      identify(built);
+      track("user_logged_in", { method: "email", role: built.role });
       resetUiState();
       setPage(built.isAdmin ? "admin" : "calendar");
       addToast("Connexion réussie.");
       await loadData(built);
     } catch (err) {
-      addToast(err?.message || "Erreur inattendue.", "error");
+      const msg = err?.message === "timeout"
+        ? "Connexion trop lente. Vérifiez votre réseau et réessayez."
+        : err?.message || "Erreur inattendue.";
+      addToast(msg, "error");
     } finally {
       loginInProgress.current = false;
     }
@@ -3436,6 +4266,9 @@ export default function App() {
         const row = await ensureUserProfile(data.user);
         const built = makeUser(row || { id: data.user.id, full_name: form.name, email, phone: form.phone, role: "customer", is_member: false, member_expiry: null });
         setUser(built);
+        identify(built);
+        track("user_registered", { method: "email" });
+        emailWelcome(built);
         resetUiState();
         setPage(built.isAdmin ? "admin" : "calendar");
         addToast("Compte créé ! Bienvenue 🎮");
@@ -3449,6 +4282,9 @@ export default function App() {
         const row = await ensureUserProfile(signInData.user);
         const built = makeUser(row || { id: signInData.user.id, full_name: form.name, email, phone: form.phone, role: "customer", is_member: false, member_expiry: null });
         setUser(built);
+        identify(built);
+        track("user_registered", { method: "email" });
+        emailWelcome(built);
         resetUiState();
         setPage(built.isAdmin ? "admin" : "calendar");
         addToast("Compte créé ! Bienvenue 🎮");
@@ -3456,7 +4292,8 @@ export default function App() {
         return;
       }
 
-      // Email confirmation required — signal AuthModal to show confirmation screen
+      // Email confirmation required — send welcome email and show confirmation screen
+      emailWelcome({ email, name: form.name });
       return "email_required";
     } catch (err) {
       addToast(err?.message || "Erreur pendant l'inscription.", "error");
@@ -3500,12 +4337,11 @@ export default function App() {
     });
 
     if (error) addToast(error.message, "error");
+    else track("user_logged_in", { method: "google" });
   }
 
   async function handleLogout() {
-    try {
-      await supabase.auth.signOut();
-    } catch (_) {}
+    // Clear UI immediately so the user sees instant feedback
     setUser(null);
     setPage("calendar");
     resetUiState();
@@ -3513,18 +4349,24 @@ export default function App() {
     setLogs([]);
     setBookings([]);
     setEventBookings([]);
+    setMembershipPayModal(false);
+    track("user_logged_out");
+    reset();
     addToast("Déconnecté.", "info");
+    // Sign out locally — no network round-trip required
+    try { await supabase.auth.signOut({ scope: "local" }); } catch (_) {}
   }
 
-  async function confirmBooking(promoResult = null, finalAmount = null, paymentMethod = null) {
+  async function confirmBooking(promoResult = null, finalAmount = null, paymentMethod = null, guestCount = 0, pointsUsed = 0) {
     if (!bookingDraft || !user) return;
 
     const start = combineDateAndTime(bookingDraft.dateStr, bookingDraft.time);
     const end = addMinutes(start, bookingDraft.durationMinutes);
     const price = finalAmount !== null ? finalAmount : bookingDraft.amount;
+    const isPaydunya = paymentMethod === "paydunya";
     const isCashOrFree = paymentMethod === "cash" || price === 0;
 
-    const { error } = await supabase.from("bookings").insert({
+    const { data: inserted, error } = await supabase.from("bookings").insert({
       user_id: user.id,
       customer_name: user.name,
       phone: user.phone,
@@ -3533,10 +4375,11 @@ export default function App() {
       duration: bookingDraft.durationMinutes,
       price,
       status: "confirmed",
-      payment_status: isCashOrFree ? "paid" : "pending",
+      payment_status: isCashOrFree ? "paid" : isPaydunya ? "paydunya_pending" : "pending",
       payment_method: paymentMethod || null,
       promo_code: promoResult?.code || null,
-    });
+      guest_count: guestCount || 0,
+    }).select("id").single();
 
     if (error) {
       addToast(error.message, "error");
@@ -3547,10 +4390,24 @@ export default function App() {
       await supabase.rpc("increment_promo_uses", { promo_id: promoResult.id });
     }
 
+    // Deduct redeemed loyalty points
+    if (pointsUsed > 0) {
+      await supabase.rpc("increment_loyalty_points", { uid: user.id, pts: -pointsUsed });
+    }
+
+    // PayDunya: slot reserved, return booking ID for BookModal to handle inline payment
+    if (isPaydunya && inserted?.id) {
+      track("booking_created", { duration: bookingDraft.durationMinutes, amount: price, payment_method: "paydunya", promo_used: !!promoResult });
+      setBookingDraft(null);
+      return { bookingId: inserted.id };
+    }
+
     const draft = { ...bookingDraft };
     setBookingDraft(null);
     await loadData(user);
     addToast("Réservation confirmée.");
+    track("booking_created", { duration: draft?.durationMinutes, amount: finalAmount, payment_method: paymentMethod, promo_used: !!promoResult });
+    emailBookingConfirmed(user, { dateStr: draft?.dateStr, time: draft?.time, durationLabel: draft?.durationLabel, amount: finalAmount });
 
     const msg = [
       `✅ *Nouvelle réservation — Jeux Dia VR*`,
@@ -3770,14 +4627,26 @@ export default function App() {
   }
 
   async function handleConfirmPayment(booking) {
-    const { error } = await supabase
-      .from("bookings")
-      .update({ payment_status: "paid" })
-      .eq("id", booking.sourceId);
-    if (error) { addToast(error.message, "error"); return; }
-    await logAdminAction("CONFIRM_PAYMENT", "bookings", booking.sourceId, { customer: booking.name, amount: booking.amount });
-    await loadData(user);
-    addToast(`✅ Paiement confirmé — ${booking.name}`);
+    try {
+      const { error } = await supabase
+        .from("bookings")
+        .update({ payment_status: "paid" })
+        .eq("id", booking.sourceId);
+      if (error) { addToast(error.message, "error"); return; }
+
+      const pointsEarned = Math.floor(Number(booking.amount || 0) / 1000);
+      if (pointsEarned > 0 && booking.userId) {
+        await supabase.rpc("increment_loyalty_points", { uid: booking.userId, pts: pointsEarned });
+      }
+
+      await logAdminAction("CONFIRM_PAYMENT", "bookings", booking.sourceId, { customer: booking.name, amount: booking.amount, points: pointsEarned });
+      await loadData(user);
+      addToast(`✅ Paiement confirmé — ${booking.name}${pointsEarned > 0 ? ` (+${pointsEarned} pts)` : ""}`);
+      track("payment_confirmed_admin", { amount: booking.amount, points_earned: pointsEarned });
+      emailPaymentConfirmed({ email: booking.email, name: booking.name }, booking);
+    } catch (err) {
+      addToast(err?.message || "Erreur confirmation paiement.", "error");
+    }
   }
 
   async function handleRejectPayment(booking) {
@@ -3791,27 +4660,68 @@ export default function App() {
     addToast(`Paiement rejeté — ${booking.name}`, "error");
   }
 
-  async function handleActivateMembership() {
+  function handleActivateMembership() {
     if (!user) return;
+    setMembershipPayModal(true);
+  }
 
-    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data, error } = await supabase
+  async function handleMembershipPayConfirm(promoResult = null) {
+    if (!user) return;
+    const { error } = await supabase
       .from("users")
-      .update({ is_member: true, member_expiry: expiry })
-      .eq("id", user.id)
-      .select()
-      .single();
-
-    if (error) {
-      addToast(error.message, "error");
-      return;
+      .update({ membership_pending: true })
+      .eq("id", user.id);
+    if (error) { addToast(error.message, "error"); return; }
+    if (promoResult?.id) {
+      await supabase.rpc("increment_promo_uses", { promo_id: promoResult.id });
     }
+    setMembershipPayModal(false);
+    addToast("Demande envoyée. L'admin activera votre pass après vérification du paiement.");
+    const BASE_PRICE = 10000;
+    const discount = promoResult
+      ? promoResult.discount_type === "percent"
+        ? Math.round(BASE_PRICE * promoResult.discount_value / 100)
+        : Math.min(promoResult.discount_value, BASE_PRICE)
+      : 0;
+    const finalPrice = BASE_PRICE - discount;
+    const msg = [
+      `💜 *Demande Pass Membre — Jeux Dia VR*`,
+      `👤 Nom : ${user.name}`,
+      `📞 Téléphone : ${user.phone || "—"}`,
+      promoResult ? `🎟️ Code promo : ${promoResult.code} (-${discount.toLocaleString()} CFA)` : null,
+      `💰 Montant : ${finalPrice === 0 ? "GRATUIT" : `${finalPrice.toLocaleString()} CFA`}`,
+      ``,
+      `Veuillez vérifier le paiement Mixx et activer le membership.`,
+    ].filter(Boolean).join("\n");
+    window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+  }
 
-    const built = makeUser(data);
-    setUser(built);
-    await loadData(built);
-    addToast("Membership activé.");
+  async function handleConfirmMembership(targetUser) {
+    try {
+      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabase
+        .from("users")
+        .update({ is_member: true, member_expiry: expiry, membership_pending: false })
+        .eq("id", targetUser.id);
+      if (error) { addToast(error.message, "error"); return; }
+      await logAdminAction("ACTIVATE_MEMBERSHIP", "users", targetUser.id, { name: targetUser.full_name });
+      await loadData(user);
+      addToast(`✅ Membership activé — ${targetUser.full_name}`);
+      track("membership_activated_admin", { user_id: targetUser.id });
+      emailMembershipActivated({ email: targetUser.email, name: targetUser.full_name });
+    } catch (err) {
+      addToast(err?.message || "Erreur activation membership.", "error");
+    }
+  }
+
+  async function handleRejectMembership(targetUser) {
+    const { error } = await supabase
+      .from("users")
+      .update({ membership_pending: false })
+      .eq("id", targetUser.id);
+    if (error) { addToast(error.message, "error"); return; }
+    await loadData(user);
+    addToast(`Demande membership rejetée — ${targetUser.full_name}`, "error");
   }
 
   async function handleSaveUserEdit(form) {
@@ -3913,7 +4823,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="container" style={{ paddingTop: 24, paddingBottom: 90 }}>
+        <main className="container main-content">
           {loading && (
             <div style={{ textAlign: "center", padding: "60px 0" }}>
               <div className="spinner" />
@@ -3930,7 +4840,7 @@ export default function App() {
                 Vivez la réalité<br /><span className="accent">virtuelle</span> à Lomé
               </h1>
               <p className="muted" style={{ marginBottom: 20, fontSize: 15 }}>
-                Réservez votre session VR en ligne. Payez par T-Money.
+                Réservez votre session VR en ligne. Payez par Mixx.
               </p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
@@ -3995,6 +4905,8 @@ export default function App() {
               onAdminCancel={handleAdminCancelBooking}
               onConfirmEvent={handleConfirmEvent}
               onCancelEvent={handleCancelEvent}
+              onConfirmMembership={handleConfirmMembership}
+              onRejectMembership={handleRejectMembership}
             />
           )}
         </main>
@@ -4008,11 +4920,10 @@ export default function App() {
               bottom: 0,
               background: "rgba(13,18,32,0.95)",
               borderTop: "1px solid var(--border)",
-              padding: 14,
               display: "flex",
-              gap: 10,
               justifyContent: "center",
             }}
+            className="bottom-cta"
           >
             <button
               type="button"
@@ -4062,6 +4973,13 @@ export default function App() {
           <ResetPasswordModal
             onClose={() => setResetModal(false)}
             onSubmit={handleResetPassword}
+          />
+        )}
+
+        {membershipPayModal && (
+          <MembershipPayModal
+            onClose={() => setMembershipPayModal(false)}
+            onConfirm={handleMembershipPayConfirm}
           />
         )}
 
