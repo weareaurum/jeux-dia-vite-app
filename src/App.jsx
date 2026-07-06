@@ -1160,32 +1160,18 @@ function MembershipPayModal({ onClose, onConfirm }) {
   );
 }
 
-function loadPaydunyaScript() {
-  return new Promise((resolve, reject) => {
-    if (window.PDCheckout) { resolve(); return; }
-    const s = document.createElement("script");
-    s.src = "https://app.paydunya.com/assets/js/checkout.min.js";
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("PayDunya script failed to load"));
-    document.head.appendChild(s);
-  });
-}
-
 function BookModal({ booking, isMember, user, onClose, onConfirm }) {
-  const [promoCode, setPromoCode]   = React.useState("");
+  const [promoCode, setPromoCode]     = React.useState("");
   const [promoResult, setPromoResult] = React.useState(null);
-  const [promoError, setPromoError] = React.useState("");
-  const [checking, setChecking]     = React.useState(false);
-  const [phone, setPhone]           = React.useState("");
-  const [network, setNetwork]       = React.useState("tmoney");
-  const [paying, setPaying]         = React.useState(false);
-  const [paid, setPaid]             = React.useState(false);
-  const [payError, setPayError]     = React.useState("");
-  const [guestCount, setGuestCount] = React.useState(0);
-  const [usePoints, setUsePoints]   = React.useState(false);
-  // PayDunya inline state
-  const [pdState, setPdState]       = React.useState(null); // null | "opening" | "checkout" | "checking" | "success"
+  const [promoError, setPromoError]   = React.useState("");
+  const [checking, setChecking]       = React.useState(false);
+  const [paying, setPaying]           = React.useState(false);
+  const [payError, setPayError]       = React.useState("");
+  const [guestCount, setGuestCount]   = React.useState(0);
+  const [usePoints, setUsePoints]     = React.useState(false);
+  const [pdState, setPdState]         = React.useState(null); // null | "opening" | "popup" | "checking" | "success"
   const [pdBookingId, setPdBookingId] = React.useState(null);
+  const pollRef                       = React.useRef(null);
 
   const canHaveGuests = isMember && booking.durationMinutes >= 60;
   const GUEST_PRICE = 3000;
@@ -1253,21 +1239,17 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     if (finalAmount === 0) { onConfirm(promoResult, 0, null, guestCount, pointsUsed); return; }
     setPaying(true); setPayError("");
     try {
-      if (network === "paydunya") {
-        await handlePaydunyaInline();
-      } else {
-        await onConfirm(promoResult, finalAmount, network, guestCount, pointsUsed);
-        setPaid(true);
-      }
+      await handlePaydunya();
     } catch (err) {
       setPayError("Erreur. Réessayez.");
       setPaying(false);
     }
   }
 
-  async function handlePaydunyaInline() {
+  async function handlePaydunya() {
     setPdState("opening");
-    // Step 1: reserve the slot (creates booking with paydunya_pending)
+
+    // Step 1: reserve the slot
     const result = await onConfirm(promoResult, finalAmount, "paydunya", guestCount, pointsUsed);
     const bookingId = result?.bookingId;
     if (!bookingId) { setPaying(false); setPdState(null); return; }
@@ -1286,33 +1268,41 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
       },
     });
 
-    if (invErr || !inv?.token) {
-      // Release the reserved slot
+    if (invErr || !inv?.checkout_url) {
       await supabase.from("bookings").delete().eq("id", bookingId);
       setPdBookingId(null);
       setPdState(null);
       setPaying(false);
-      setPayError("Service PayDunya indisponible. Réessayez ou choisissez Mixx/Cash.");
+      setPayError("Service PayDunya indisponible. Réessayez.");
       return;
     }
 
-    // Step 3: load PayDunya inline JS and open overlay
-    try {
-      await loadPaydunyaScript();
-    } catch (_) {
-      // Script failed to load — fallback: open PayDunya hosted page in same tab
-      window.location.href = inv.checkout_url || `https://app.paydunya.com/checkout/invoice/${inv.token}`;
+    // Step 3: open PayDunya in a popup window (stays on jeuxdia.com)
+    const w = 520, h = 700;
+    const left = Math.floor((window.screen.width - w) / 2);
+    const top  = Math.floor((window.screen.height - h) / 2);
+    const popup = window.open(
+      inv.checkout_url,
+      "PayDunya",
+      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`
+    );
+
+    if (!popup || popup.closed) {
+      // Popup blocked — fall back to same-tab redirect
+      window.location.href = inv.checkout_url;
       return;
     }
 
-    setPdState("checkout");
+    setPdState("popup");
     setPaying(false);
-    // PDCheckout.open shows an overlay on top of the current page
-    if (window.PDCheckout?.open) {
-      window.PDCheckout.open(inv.token);
-    } else if (window.PDCheckout?.loadPDCheckout) {
-      window.PDCheckout.loadPDCheckout(inv.token);
-    }
+
+    // Auto-check when user closes the popup
+    pollRef.current = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(pollRef.current);
+        checkPaydunyaStatus();
+      }
+    }, 1500);
   }
 
   async function checkPaydunyaStatus() {
@@ -1323,37 +1313,18 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     if (data?.payment_status === "paid") {
       setPdState("success");
     } else {
-      setPdState("checkout");
-      setPayError("Paiement non encore reçu. Complétez le paiement puis vérifiez à nouveau.");
+      setPdState("popup");
+      setPayError("Paiement non encore reçu. Fermez la fenêtre PayDunya après avoir payé.");
     }
   }
 
   async function cancelPaydunya() {
-    if (pdBookingId) {
-      await supabase.from("bookings").delete().eq("id", pdBookingId);
-    }
+    clearInterval(pollRef.current);
+    if (pdBookingId) await supabase.from("bookings").delete().eq("id", pdBookingId);
     setPdBookingId(null);
     setPdState(null);
     setPayError("");
     setPaying(false);
-  }
-
-  if (paid) {
-    return (
-      <Modal onClose={onClose}>
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
-          <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Réservation en attente</h3>
-          <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid var(--accent)", borderRadius: 12, padding: "16px", margin: "16px 0", textAlign: "left" }}>
-            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>Envoyez {formatCFA(finalAmount)} via Mixx au :</p>
-            <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 93 69 54 63</p>
-            <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
-          </div>
-          <p className="muted" style={{ fontSize: 13 }}>L'admin confirmera votre paiement et vous serez notifié(e) dès que votre réservation est validée.</p>
-          <button type="button" className="btn btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={onClose}>Compris</button>
-        </div>
-      </Modal>
-    );
   }
 
   if (pdState === "success") {
@@ -1369,22 +1340,21 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     );
   }
 
-  if (pdState === "opening" || pdState === "checkout" || pdState === "checking") {
+  if (pdState === "opening" || pdState === "popup" || pdState === "checking") {
     return (
       <Modal onClose={onClose}>
         <div style={{ textAlign: "center", padding: "20px 0" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>💳</div>
           <h3 style={{ marginTop: 0 }}>Paiement PayDunya</h3>
-          {pdState === "opening" && (
-            <p className="muted">Ouverture du paiement en cours…</p>
-          )}
-          {(pdState === "checkout" || pdState === "checking") && (
+          {pdState === "opening" && <p className="muted">Ouverture en cours…</p>}
+          {(pdState === "popup" || pdState === "checking") && (
             <>
-              <p style={{ marginBottom: 4 }}>
-                La fenêtre PayDunya est ouverte sur cette page.
+              <p style={{ fontSize: 14, marginBottom: 4 }}>
+                Une fenêtre PayDunya s'est ouverte.<br />
+                Payez <strong>{formatCFA(finalAmount)}</strong> puis fermez-la.
               </p>
-              <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
-                Complétez le paiement de <strong>{formatCFA(finalAmount)}</strong> dans la fenêtre PayDunya, puis cliquez sur le bouton ci-dessous.
+              <p className="muted" style={{ fontSize: 12, marginBottom: 16 }}>
+                La confirmation se fait automatiquement à la fermeture.
               </p>
               {payError && <p style={{ color: "#fca5a5", fontSize: 13, marginBottom: 12 }}>{payError}</p>}
               <button
@@ -1394,7 +1364,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
                 onClick={checkPaydunyaStatus}
                 disabled={pdState === "checking"}
               >
-                {pdState === "checking" ? "Vérification…" : "✓ J'ai payé — Vérifier"}
+                {pdState === "checking" ? "Vérification…" : "✓ Vérifier le paiement"}
               </button>
             </>
           )}
@@ -1405,7 +1375,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
             onClick={cancelPaydunya}
             disabled={pdState === "opening" || pdState === "checking"}
           >
-            Annuler le paiement
+            Annuler
           </button>
         </div>
       </Modal>
@@ -1480,73 +1450,35 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
         )}
       </div>
 
-      {isMember && canHaveGuests && guestCount > 0 && (
+      {finalAmount > 0 && (
         <>
-          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Paiement pour {guestCount} invité{guestCount > 1 ? "s" : ""} ({formatCFA(finalAmount)})</p>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {["tmoney", "cash"].map((n) => (
-              <button key={n} type="button" onClick={() => setNetwork(n)}
-                style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${network === n ? "var(--accent)" : "var(--border)"}`,
-                  background: network === n ? "rgba(0,245,212,0.1)" : "transparent",
-                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
-                {n === "tmoney" ? "Mixx" : "Cash"}
-              </button>
-            ))}
-          </div>
-          {network === "tmoney" && (
-            <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 93 69 54 63</strong> via Mixx pour les invités.
-            </div>
+          {!isMember && (
+            <>
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <input
+                  className="input"
+                  placeholder="Code promo"
+                  value={promoCode}
+                  onChange={(e) => { setPromoCode(e.target.value); setPromoResult(null); setPromoError(""); }}
+                  style={{ flex: 1, textTransform: "uppercase" }}
+                />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking}>
+                  {checking ? "..." : "Appliquer"}
+                </button>
+              </div>
+              {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
+              {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
+            </>
           )}
-          {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
-        </>
-      )}
-
-      {!isMember && (
-        <>
-          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <input
-              className="input"
-              placeholder="Code promo"
-              value={promoCode}
-              onChange={(e) => { setPromoCode(e.target.value); setPromoResult(null); setPromoError(""); }}
-              style={{ flex: 1, textTransform: "uppercase" }}
-            />
-            <button type="button" className="btn btn-ghost btn-sm" onClick={checkPromo} disabled={checking}>
-              {checking ? "..." : "Appliquer"}
-            </button>
-          </div>
-          {promoError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{promoError}</p>}
-          {promoResult && <p style={{ color: "#6ee7b7", fontSize: 12, marginTop: 6 }}>✓ Réduction appliquée !</p>}
-
-          <p style={{ fontSize: 12, color: "var(--muted)", margin: "16px 0 8px" }}>Mode de paiement</p>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {["tmoney", "paydunya", "cash"].map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setNetwork(n)}
-                style={{
-                  flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${network === n ? "var(--accent)" : "var(--border)"}`,
-                  background: network === n ? "rgba(0,245,212,0.1)" : "transparent",
-                  color: network === n ? "var(--accent)" : "var(--muted)", fontWeight: 700, cursor: "pointer", fontSize: 13,
-                }}
-              >
-                {n === "tmoney" ? "Mixx" : n === "paydunya" ? "PayDunya" : "Cash"}
-              </button>
-            ))}
-          </div>
-          {network === "tmoney" && (
-            <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-              Envoyez <strong>{formatCFA(finalAmount)}</strong> au <strong>+228 93 69 54 63</strong> via Mixx. Votre réservation sera confirmée après vérification.
+          <div style={{ marginTop: 14, background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: 12, padding: "12px 14px" }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>Paiement sécurisé via PayDunya</p>
+            <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--muted)" }}>
+              <span>📱 Mixx</span>
+              <span>📱 Flooz</span>
+              <span>💳 Carte</span>
             </div>
-          )}
-          {network === "paydunya" && (
-            <div style={{ background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.4)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-              Vous serez redirigé(e) vers PayDunya pour payer <strong>{formatCFA(finalAmount)}</strong> en ligne (Mobile Money, carte, etc.).
-            </div>
-          )}
-          {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 6 }}>{payError}</p>}
+          </div>
+          {payError && <p style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }}>{payError}</p>}
         </>
       )}
 
@@ -1555,7 +1487,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
           Annuler
         </button>
         <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={handlePay} disabled={paying}>
-          {paying ? "..." : isMember && finalAmount === 0 ? "Confirmer" : network === "paydunya" ? `Payer avec PayDunya →` : `Payer ${formatCFA(finalAmount)}`}
+          {paying ? "..." : finalAmount === 0 ? "Confirmer" : `Payer ${formatCFA(finalAmount)} →`}
         </button>
       </div>
     </Modal>
