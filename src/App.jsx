@@ -4015,12 +4015,17 @@ export default function App() {
 
   // Handle return from PayDunya checkout
   useEffect(() => {
+    const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
-    const pdStatus = params.get("paydunya");
+    // New style: /payment-complete?token=xxx — old style: ?paydunya=completed
+    const pdStatus =
+      path === "/payment-complete" ? "completed"
+      : path === "/payment-cancelled" ? "cancelled"
+      : params.get("paydunya");
     const pendingId = sessionStorage.getItem("pd_pending_booking");
 
     if (pdStatus) {
-      window.history.replaceState(null, "", window.location.pathname);
+      window.history.replaceState(null, "", "/");
       sessionStorage.removeItem("pd_pending_booking");
       if (pdStatus === "completed") {
         addToast("Paiement reçu ! Votre réservation est confirmée.", "success");

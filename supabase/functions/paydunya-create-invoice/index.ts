@@ -48,8 +48,9 @@ serve(async (req) => {
       },
       store: { name: "Jeux Dia VR" },
       actions: {
-        cancel_url: `${APP_URL}?paydunya=cancelled`,
-        return_url: `${APP_URL}?paydunya=completed`,
+        // Clean paths only — PayDunya appends ?token=... which breaks URLs that already have a query string
+        cancel_url: `${APP_URL}/payment-cancelled`,
+        return_url: `${APP_URL}/payment-complete`,
         callback_url: WEBHOOK_URL,
       },
       custom_data: { booking_id: bookingId },
