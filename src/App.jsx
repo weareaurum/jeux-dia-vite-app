@@ -4017,19 +4017,38 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const pdStatus = params.get("paydunya");
-    if (!pdStatus) return;
-    window.history.replaceState(null, "", window.location.pathname);
     const pendingId = sessionStorage.getItem("pd_pending_booking");
-    sessionStorage.removeItem("pd_pending_booking");
 
-    if (pdStatus === "completed") {
-      addToast("Paiement reçu ! Votre réservation est confirmée.", "success");
-      // loadData runs via onAuthStateChange INITIAL_SESSION on page reload — no extra call needed
-    } else if (pdStatus === "cancelled") {
-      if (pendingId) {
-        supabase.from("bookings").delete().eq("id", pendingId).then(() => {});
+    if (pdStatus) {
+      window.history.replaceState(null, "", window.location.pathname);
+      sessionStorage.removeItem("pd_pending_booking");
+      if (pdStatus === "completed") {
+        addToast("Paiement reçu ! Votre réservation est confirmée.", "success");
+      } else if (pdStatus === "cancelled") {
+        if (pendingId) {
+          supabase.from("bookings").delete().eq("id", pendingId).then(() => {});
+        }
+        addToast("Paiement annulé — réservation supprimée.", "error");
       }
-      addToast("Paiement annulé — réservation supprimée.", "error");
+      return;
+    }
+
+    // No return param but a payment was in flight (user came back manually from
+    // PayDunya's status page) — check whether the webhook confirmed it
+    if (pendingId) {
+      sessionStorage.removeItem("pd_pending_booking");
+      supabase
+        .from("bookings")
+        .select("payment_status")
+        .eq("id", pendingId)
+        .single()
+        .then(({ data }) => {
+          if (data?.payment_status === "paid") {
+            addToast("Paiement reçu ! Votre réservation est confirmée. ✅", "success");
+          } else if (data?.payment_status === "paydunya_pending") {
+            addToast("Paiement en cours de vérification. Votre réservation sera confirmée automatiquement.", "info");
+          }
+        });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
