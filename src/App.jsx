@@ -1249,10 +1249,23 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   async function handlePaydunya() {
     setPdState("opening");
 
+    // Open blank popup IMMEDIATELY (sync) — preserves user gesture so mobile browsers don't block it
+    const w = 520, h = 700;
+    const left = Math.floor((window.screen.width - w) / 2);
+    const top  = Math.floor((window.screen.height - h) / 2);
+    const popup = window.open(
+      "about:blank",
+      "PayDunya",
+      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`
+    );
+
     // Step 1: reserve the slot
     const result = await onConfirm(promoResult, finalAmount, "paydunya", guestCount, pointsUsed);
     const bookingId = result?.bookingId;
-    if (!bookingId) { setPaying(false); setPdState(null); return; }
+    if (!bookingId) {
+      popup?.close();
+      setPaying(false); setPdState(null); return;
+    }
     setPdBookingId(bookingId);
 
     // Step 2: create PayDunya invoice
@@ -1269,6 +1282,7 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     });
 
     if (invErr || !inv?.checkout_url) {
+      popup?.close();
       await supabase.from("bookings").delete().eq("id", bookingId);
       setPdBookingId(null);
       setPdState(null);
@@ -1277,32 +1291,22 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
       return;
     }
 
-    // Step 3: open PayDunya in a popup window (stays on jeuxdia.com)
-    const w = 520, h = 700;
-    const left = Math.floor((window.screen.width - w) / 2);
-    const top  = Math.floor((window.screen.height - h) / 2);
-    const popup = window.open(
-      inv.checkout_url,
-      "PayDunya",
-      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`
-    );
-
-    if (!popup || popup.closed) {
-      // Popup blocked — fall back to same-tab redirect
+    // Step 3: navigate the already-open popup to PayDunya
+    if (popup && !popup.closed) {
+      popup.location.href = inv.checkout_url;
+      setPdState("popup");
+      setPaying(false);
+      // Auto-check when user closes the popup
+      pollRef.current = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(pollRef.current);
+          checkPaydunyaStatus();
+        }
+      }, 1500);
+    } else {
+      // Popup was blocked — fall back to same-tab redirect
       window.location.href = inv.checkout_url;
-      return;
     }
-
-    setPdState("popup");
-    setPaying(false);
-
-    // Auto-check when user closes the popup
-    pollRef.current = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(pollRef.current);
-        checkPaydunyaStatus();
-      }
-    }, 1500);
   }
 
   async function checkPaydunyaStatus() {
