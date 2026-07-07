@@ -78,7 +78,7 @@ serve(async (req) => {
     if (result.response_code !== "00") {
       console.error("PayDunya error:", JSON.stringify(result));
       return new Response(
-        JSON.stringify({ error: result.description || "PayDunya invoice creation failed" }),
+        JSON.stringify({ error: result.response_text || result.description || "PayDunya invoice creation failed", paydunya: result }),
         { status: 400, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }

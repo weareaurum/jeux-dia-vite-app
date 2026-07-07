@@ -1237,6 +1237,10 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
 
   async function handlePay() {
     if (finalAmount === 0) { onConfirm(promoResult, 0, null, guestCount, pointsUsed); return; }
+    if (finalAmount < 200) {
+      setPayError("Montant minimum de paiement en ligne : 200 CFA. Ajustez le code promo ou les points utilisés.");
+      return;
+    }
     setPaying(true); setPayError("");
     try {
       await handlePaydunya();
