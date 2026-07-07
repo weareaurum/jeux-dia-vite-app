@@ -1249,23 +1249,10 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   async function handlePaydunya() {
     setPdState("opening");
 
-    // Open blank popup IMMEDIATELY (sync) — preserves user gesture so mobile browsers don't block it
-    const w = 520, h = 700;
-    const left = Math.floor((window.screen.width - w) / 2);
-    const top  = Math.floor((window.screen.height - h) / 2);
-    const popup = window.open(
-      "about:blank",
-      "PayDunya",
-      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`
-    );
-
     // Step 1: reserve the slot
     const result = await onConfirm(promoResult, finalAmount, "paydunya", guestCount, pointsUsed);
     const bookingId = result?.bookingId;
-    if (!bookingId) {
-      popup?.close();
-      setPaying(false); setPdState(null); return;
-    }
+    if (!bookingId) { setPaying(false); setPdState(null); return; }
     setPdBookingId(bookingId);
 
     // Step 2: create PayDunya invoice
@@ -1282,7 +1269,6 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
     });
 
     if (invErr || !inv?.checkout_url) {
-      popup?.close();
       await supabase.from("bookings").delete().eq("id", bookingId);
       setPdBookingId(null);
       setPdState(null);
@@ -1291,96 +1277,19 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
       return;
     }
 
-    // Step 3: navigate the already-open popup to PayDunya
-    if (popup && !popup.closed) {
-      popup.location.href = inv.checkout_url;
-      setPdState("popup");
-      setPaying(false);
-      // Auto-check when user closes the popup
-      pollRef.current = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(pollRef.current);
-          checkPaydunyaStatus();
-        }
-      }, 1500);
-    } else {
-      // Popup was blocked — fall back to same-tab redirect
-      window.location.href = inv.checkout_url;
-    }
+    // Step 3: save booking ID so we can clean up on cancel, then redirect same tab
+    sessionStorage.setItem("pd_pending_booking", bookingId);
+    window.location.href = inv.checkout_url;
   }
 
-  async function checkPaydunyaStatus() {
-    if (!pdBookingId) return;
-    setPdState("checking");
-    const { data } = await supabase
-      .from("bookings").select("payment_status").eq("id", pdBookingId).single();
-    if (data?.payment_status === "paid") {
-      setPdState("success");
-    } else {
-      setPdState("popup");
-      setPayError("Paiement non encore reçu. Fermez la fenêtre PayDunya après avoir payé.");
-    }
-  }
 
-  async function cancelPaydunya() {
-    clearInterval(pollRef.current);
-    if (pdBookingId) await supabase.from("bookings").delete().eq("id", pdBookingId);
-    setPdBookingId(null);
-    setPdState(null);
-    setPayError("");
-    setPaying(false);
-  }
-
-  if (pdState === "success") {
+  if (pdState === "opening") {
     return (
       <Modal onClose={onClose}>
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
-          <h3 style={{ color: "#6ee7b7", marginTop: 0 }}>Paiement confirmé !</h3>
-          <p className="muted" style={{ fontSize: 14 }}>Votre réservation est validée. À bientôt chez Jeux Dia VR !</p>
-          <button type="button" className="btn btn-primary" style={{ marginTop: 16, width: "100%" }} onClick={onClose}>Fermer</button>
-        </div>
-      </Modal>
-    );
-  }
-
-  if (pdState === "opening" || pdState === "popup" || pdState === "checking") {
-    return (
-      <Modal onClose={onClose}>
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>💳</div>
-          <h3 style={{ marginTop: 0 }}>Paiement PayDunya</h3>
-          {pdState === "opening" && <p className="muted">Ouverture en cours…</p>}
-          {(pdState === "popup" || pdState === "checking") && (
-            <>
-              <p style={{ fontSize: 14, marginBottom: 4 }}>
-                Une fenêtre PayDunya s'est ouverte.<br />
-                Payez <strong>{formatCFA(finalAmount)}</strong> puis fermez-la.
-              </p>
-              <p className="muted" style={{ fontSize: 12, marginBottom: 16 }}>
-                La confirmation se fait automatiquement à la fermeture.
-              </p>
-              {payError && <p style={{ color: "#fca5a5", fontSize: 13, marginBottom: 12 }}>{payError}</p>}
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ width: "100%", marginBottom: 10 }}
-                onClick={checkPaydunyaStatus}
-                disabled={pdState === "checking"}
-              >
-                {pdState === "checking" ? "Vérification…" : "✓ Vérifier le paiement"}
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ width: "100%", color: "#fca5a5" }}
-            onClick={cancelPaydunya}
-            disabled={pdState === "opening" || pdState === "checking"}
-          >
-            Annuler
-          </button>
+        <div style={{ textAlign: "center", padding: "32px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>💳</div>
+          <h3 style={{ marginTop: 0 }}>Redirection vers PayDunya…</h3>
+          <p className="muted" style={{ fontSize: 13 }}>Préparation du paiement de <strong>{formatCFA(finalAmount)}</strong></p>
         </div>
       </Modal>
     );
@@ -4100,16 +4009,23 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe?.();
   }, [loadCurrentUser, loadData]);
 
-  // Handle return from PayDunya (fallback: only reached if PDCheckout.js fails and we fell back to full redirect)
+  // Handle return from PayDunya checkout
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const pdStatus = params.get("paydunya");
     if (!pdStatus) return;
     window.history.replaceState(null, "", window.location.pathname);
+    const pendingId = sessionStorage.getItem("pd_pending_booking");
+    sessionStorage.removeItem("pd_pending_booking");
+
     if (pdStatus === "completed") {
-      addToast("Paiement PayDunya reçu ! Confirmation en cours.", "success");
+      addToast("Paiement reçu ! Votre réservation est confirmée.", "success");
+      // loadData runs via onAuthStateChange INITIAL_SESSION on page reload — no extra call needed
     } else if (pdStatus === "cancelled") {
-      addToast("Paiement annulé.", "error");
+      if (pendingId) {
+        supabase.from("bookings").delete().eq("id", pendingId).then(() => {});
+      }
+      addToast("Paiement annulé — réservation supprimée.", "error");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
