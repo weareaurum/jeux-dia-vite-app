@@ -1097,8 +1097,10 @@ function MembershipPayModal({ onClose, onConfirm }) {
 
   async function handleConfirm() {
     setPaying(true);
-    await onConfirm(promoResult);
-    setDone(true);
+    const result = await onConfirm(promoResult);
+    if (result === "done") setDone(true);
+    else if (result === "error") setPaying(false);
+    // "redirect" — the page is navigating to PayDunya, keep the spinner
   }
 
   if (done) {
@@ -1107,7 +1109,7 @@ function MembershipPayModal({ onClose, onConfirm }) {
         <div style={{ textAlign: "center", padding: "20px 0" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
           <h3 style={{ color: "var(--accent)", marginTop: 0 }}>Demande en attente</h3>
-          <p className="muted" style={{ fontSize: 13 }}>L'admin activera votre pass après vérification du paiement.</p>
+          <p className="muted" style={{ fontSize: 13 }}>L'admin activera votre pass après vérification.</p>
           <button type="button" className="btn btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={onClose}>Compris</button>
         </div>
       </Modal>
@@ -1144,16 +1146,25 @@ function MembershipPayModal({ onClose, onConfirm }) {
       </div>
       {promoError && <p style={{ color: "#fca5a5", fontSize: 12, margin: "4px 0 0" }}>{promoError}</p>}
       {promoResult && <p style={{ color: "#86efac", fontSize: 12, margin: "4px 0 0" }}>Code appliqué !</p>}
-      <div style={{ background: "rgba(0,245,212,0.07)", border: "1px solid rgba(0,245,212,0.3)", borderRadius: 10, padding: "14px 16px", margin: "14px 0", fontSize: 13 }}>
-        <p style={{ margin: "0 0 6px", fontWeight: 700 }}>Envoyez 10,000 CFA via Mixx au :</p>
-        <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--accent)", letterSpacing: 2 }}>+228 93 69 54 63</p>
-        <p style={{ margin: "8px 0 0", fontSize: 12 }} className="muted">Mentionnez votre nom en référence.</p>
-      </div>
-      <p className="muted" style={{ fontSize: 12 }}>Après paiement, cliquez "J'ai payé" — l'admin activera votre pass dès vérification.</p>
+      {finalPrice > 0 && (
+        <div style={{ background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: 12, padding: "12px 14px", margin: "14px 0" }}>
+          <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>Paiement sécurisé via PayDunya</p>
+          <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--muted)" }}>
+            <span>📱 Mixx</span>
+            <span>📱 Flooz</span>
+            <span>💳 Carte</span>
+          </div>
+        </div>
+      )}
+      <p className="muted" style={{ fontSize: 12 }}>
+        {finalPrice === 0
+          ? "Votre pass sera activé par l'admin après vérification du code promo."
+          : "Votre Pass Membre sera activé automatiquement après le paiement."}
+      </p>
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
         <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose} disabled={paying}>Annuler</button>
         <button type="button" className="btn btn-primary" style={{ flex: 1, background: "var(--purple)" }} onClick={handleConfirm} disabled={paying}>
-          {paying ? "Envoi..." : "J'ai payé"}
+          {paying ? "..." : finalPrice === 0 ? "Confirmer" : `Payer ${finalPrice.toLocaleString()} CFA →`}
         </button>
       </div>
     </Modal>
@@ -1281,8 +1292,8 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
       return;
     }
 
-    // Step 3: save booking ID so we can clean up on cancel, then redirect same tab
-    sessionStorage.setItem("pd_pending_booking", bookingId);
+    // Step 3: save payment marker so we can handle the return, then redirect same tab
+    sessionStorage.setItem("pd_pending", JSON.stringify({ type: "booking", id: bookingId }));
     window.location.href = inv.checkout_url;
   }
 
@@ -2284,15 +2295,25 @@ function EventsPage({ user, onSubmit }) {
       </div>
 
       {user ? (
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ width: "100%", padding: "14px" }}
-          onClick={handleSubmit}
-          disabled={!form.eventDate || !pin}
-        >
-          Envoyer la demande →
-        </button>
+        <>
+          <div style={{ background: "rgba(124,58,237,0.07)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>Paiement sécurisé via PayDunya</p>
+            <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--muted)" }}>
+              <span>📱 Mixx</span>
+              <span>📱 Flooz</span>
+              <span>💳 Carte</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ width: "100%", padding: "14px" }}
+            onClick={handleSubmit}
+            disabled={!form.eventDate || !pin}
+          >
+            {total > 0 ? `Payer ${formatCFA(total)} et réserver →` : "Envoyer la demande →"}
+          </button>
+        </>
       ) : (
         <p className="muted" style={{ textAlign: "center" }}>Connectez-vous pour soumettre une demande.</p>
       )}
@@ -4022,38 +4043,63 @@ export default function App() {
       path === "/payment-complete" ? "completed"
       : path === "/payment-cancelled" ? "cancelled"
       : params.get("paydunya");
-    const pendingId = sessionStorage.getItem("pd_pending_booking");
+
+    let pending = null;
+    try {
+      const raw = sessionStorage.getItem("pd_pending") || sessionStorage.getItem("pd_pending_booking");
+      pending = raw?.startsWith("{") ? JSON.parse(raw) : raw ? { type: "booking", id: raw } : null;
+    } catch (_) { pending = null; }
+
+    const SUCCESS_MSG = {
+      booking: "Paiement reçu ! Votre réservation est confirmée. ✅",
+      membership: "Paiement reçu ! Votre Pass Membre est actif. 💜",
+      event: "Paiement reçu ! Votre événement est confirmé. 🎉",
+    };
 
     if (pdStatus) {
       window.history.replaceState(null, "", "/");
+      sessionStorage.removeItem("pd_pending");
       sessionStorage.removeItem("pd_pending_booking");
       if (pdStatus === "completed") {
-        addToast("Paiement reçu ! Votre réservation est confirmée.", "success");
+        addToast(SUCCESS_MSG[pending?.type] || SUCCESS_MSG.booking, "success");
       } else if (pdStatus === "cancelled") {
-        if (pendingId) {
-          supabase.from("bookings").delete().eq("id", pendingId).then(() => {});
+        if (pending?.type === "booking" && pending.id) {
+          supabase.from("bookings").delete().eq("id", pending.id).then(() => {});
+          addToast("Paiement annulé — réservation supprimée.", "error");
+        } else if (pending?.type === "membership" && pending.id) {
+          supabase.from("users").update({ membership_pending: false }).eq("id", pending.id).then(() => {});
+          addToast("Paiement annulé.", "error");
+        } else if (pending?.type === "event") {
+          addToast("Paiement annulé — votre demande reste enregistrée, nous vous contactons sous 24h.", "info");
+        } else {
+          addToast("Paiement annulé.", "error");
         }
-        addToast("Paiement annulé — réservation supprimée.", "error");
       }
       return;
     }
 
     // No return param but a payment was in flight (user came back manually from
     // PayDunya's status page) — check whether the webhook confirmed it
-    if (pendingId) {
+    if (pending?.id) {
+      sessionStorage.removeItem("pd_pending");
       sessionStorage.removeItem("pd_pending_booking");
-      supabase
-        .from("bookings")
-        .select("payment_status")
-        .eq("id", pendingId)
-        .single()
-        .then(({ data }) => {
+      if (pending.type === "membership") {
+        supabase.from("users").select("is_member").eq("id", pending.id).single().then(({ data }) => {
+          if (data?.is_member) addToast(SUCCESS_MSG.membership, "success");
+        });
+      } else if (pending.type === "event") {
+        supabase.from("event_bookings").select("payment_status").eq("id", pending.id).single().then(({ data }) => {
+          if (data?.payment_status === "paid") addToast(SUCCESS_MSG.event, "success");
+        });
+      } else {
+        supabase.from("bookings").select("payment_status").eq("id", pending.id).single().then(({ data }) => {
           if (data?.payment_status === "paid") {
-            addToast("Paiement reçu ! Votre réservation est confirmée. ✅", "success");
+            addToast(SUCCESS_MSG.booking, "success");
           } else if (data?.payment_status === "paydunya_pending") {
             addToast("Paiement en cours de vérification. Votre réservation sera confirmée automatiquement.", "info");
           }
         });
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4390,7 +4436,7 @@ export default function App() {
   async function handleSubmitEvent(form) {
     if (!user) return;
 
-    const { error } = await supabase.from("event_bookings").insert({
+    const { data: inserted, error } = await supabase.from("event_bookings").insert({
       user_id: user.id,
       customer_name: user.name,
       phone: user.phone,
@@ -4403,14 +4449,36 @@ export default function App() {
       notes: form.notes,
       total_price: form.total,
       status: "pending",
-    });
+    }).select("id").single();
 
     if (error) {
       addToast(error.message, "error");
       return;
     }
 
-    addToast("Demande envoyée ! Nous vous contactons sous 24h.");
+    // Paid event — PayDunya checkout; webhook confirms automatically
+    if (form.total > 0 && inserted?.id) {
+      const { data: inv, error: invErr } = await supabase.functions.invoke("paydunya-create-invoice", {
+        body: {
+          type: "event",
+          eventId: inserted.id,
+          amount: form.total,
+          description: `Événement VR — ${form.eventDate} (${form.guests} pers., ${form.hours}h)`,
+          customerName: user.name,
+          customerEmail: user.email,
+          customerPhone: user.phone,
+        },
+      });
+      if (!invErr && inv?.checkout_url) {
+        sessionStorage.setItem("pd_pending", JSON.stringify({ type: "event", id: inserted.id }));
+        window.location.href = inv.checkout_url;
+        return;
+      }
+      // PayDunya unavailable — keep the request as a lead, admin follows up
+      addToast("Demande envoyée ! Paiement en ligne indisponible — nous vous contactons sous 24h.", "info");
+    } else {
+      addToast("Demande envoyée ! Nous vous contactons sous 24h.");
+    }
     setPage("calendar");
 
     const msg = [
@@ -4547,6 +4615,14 @@ export default function App() {
 
   async function handleMembershipPayConfirm(promoResult = null) {
     if (!user) return;
+    const BASE_PRICE = 10000;
+    const discount = promoResult
+      ? promoResult.discount_type === "percent"
+        ? Math.round(BASE_PRICE * promoResult.discount_value / 100)
+        : Math.min(promoResult.discount_value, BASE_PRICE)
+      : 0;
+    const finalPrice = BASE_PRICE - discount;
+
     const { error } = await supabase
       .from("users")
       .update({ membership_pending: true })
@@ -4555,25 +4631,44 @@ export default function App() {
     if (promoResult?.id) {
       await supabase.rpc("increment_promo_uses", { promo_id: promoResult.id });
     }
-    setMembershipPayModal(false);
-    addToast("Demande envoyée. L'admin activera votre pass après vérification du paiement.");
-    const BASE_PRICE = 10000;
-    const discount = promoResult
-      ? promoResult.discount_type === "percent"
-        ? Math.round(BASE_PRICE * promoResult.discount_value / 100)
-        : Math.min(promoResult.discount_value, BASE_PRICE)
-      : 0;
-    const finalPrice = BASE_PRICE - discount;
-    const msg = [
-      `💜 *Demande Pass Membre — Jeux Dia VR*`,
-      `👤 Nom : ${user.name}`,
-      `📞 Téléphone : ${user.phone || "—"}`,
-      promoResult ? `🎟️ Code promo : ${promoResult.code} (-${discount.toLocaleString()} CFA)` : null,
-      `💰 Montant : ${finalPrice === 0 ? "GRATUIT" : `${finalPrice.toLocaleString()} CFA`}`,
-      ``,
-      `Veuillez vérifier le paiement Mixx et activer le membership.`,
-    ].filter(Boolean).join("\n");
-    window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+
+    // Free (100% promo) — admin activates manually after checking the promo
+    if (finalPrice === 0) {
+      setMembershipPayModal(false);
+      addToast("Demande envoyée. L'admin activera votre pass après vérification.");
+      const msg = [
+        `💜 *Demande Pass Membre — Jeux Dia VR*`,
+        `👤 Nom : ${user.name}`,
+        `📞 Téléphone : ${user.phone || "—"}`,
+        promoResult ? `🎟️ Code promo : ${promoResult.code} (-${discount.toLocaleString()} CFA)` : null,
+        `💰 Montant : GRATUIT`,
+        ``,
+        `Veuillez vérifier le code promo et activer le membership.`,
+      ].filter(Boolean).join("\n");
+      window.open(`https://wa.me/22893695463?text=${encodeURIComponent(msg)}`, "_blank");
+      return "done";
+    }
+
+    // Paid — PayDunya checkout; webhook activates the pass automatically
+    const { data: inv, error: invErr } = await supabase.functions.invoke("paydunya-create-invoice", {
+      body: {
+        type: "membership",
+        userId: user.id,
+        amount: finalPrice,
+        description: "Pass Membre 30 jours — Jeux Dia VR",
+        customerName: user.name,
+        customerEmail: user.email,
+        customerPhone: user.phone,
+      },
+    });
+    if (invErr || !inv?.checkout_url) {
+      await supabase.from("users").update({ membership_pending: false }).eq("id", user.id);
+      addToast("Service PayDunya indisponible. Réessayez.", "error");
+      return "error";
+    }
+    sessionStorage.setItem("pd_pending", JSON.stringify({ type: "membership", id: user.id }));
+    window.location.href = inv.checkout_url;
+    return "redirect";
   }
 
   async function handleConfirmMembership(targetUser) {

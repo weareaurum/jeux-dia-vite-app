@@ -22,10 +22,12 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
-    const { bookingId, amount, description, customerName, customerEmail, customerPhone } = await req.json();
+    const { type, bookingId, userId, eventId, amount, description, customerName, customerEmail, customerPhone } = await req.json();
 
-    if (!bookingId || !amount) {
-      return new Response(JSON.stringify({ error: "bookingId and amount required" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+    const payType = type || "booking";
+    const refId = payType === "membership" ? userId : payType === "event" ? eventId : bookingId;
+    if (!refId || !amount) {
+      return new Response(JSON.stringify({ error: "reference id and amount required" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
     }
 
     if (!MASTER_KEY || !PRIVATE_KEY || !TOKEN) {
@@ -53,7 +55,12 @@ serve(async (req) => {
         return_url: `${APP_URL}/payment-complete`,
         callback_url: WEBHOOK_URL,
       },
-      custom_data: { booking_id: bookingId },
+      custom_data: {
+        type: payType,
+        ...(payType === "booking"    ? { booking_id: refId } : {}),
+        ...(payType === "membership" ? { user_id: refId }    : {}),
+        ...(payType === "event"      ? { event_id: refId }   : {}),
+      },
       ...(customerName || customerEmail || customerPhone ? {
         customer: {
           ...(customerName  ? { name: customerName }   : {}),
