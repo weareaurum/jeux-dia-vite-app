@@ -1182,7 +1182,6 @@ function BookModal({ booking, isMember, user, onClose, onConfirm }) {
   const [usePoints, setUsePoints]     = React.useState(false);
   const [pdState, setPdState]         = React.useState(null); // null | "opening" | "popup" | "checking" | "success"
   const [pdBookingId, setPdBookingId] = React.useState(null);
-  const pollRef                       = React.useRef(null);
 
   const canHaveGuests = isMember && booking.durationMinutes >= 60;
   const GUEST_PRICE = 3000;
@@ -2318,7 +2317,7 @@ function TermsContent() {
       <LegalP>Dernière mise à jour : {LEGAL_UPDATED}</LegalP>
       <LegalP>
         Les présentes conditions générales ("Conditions") régissent l'utilisation du site jeuxdia.com et des services
-        de réservation de sessions de réalité virtuelle exploités par <strong>{LEGAL_ENTITY}</strong>, {LEGAL_ADDRESS}
+        de réservation de sessions de réalité virtuelle exploités par <strong>{LEGAL_ENTITY}</strong>, {LEGAL_ADDRESS}{" "}
         ("nous", "Jeux Dia VR"). En créant un compte ou en utilisant le service, vous acceptez ces Conditions.
       </LegalP>
 
