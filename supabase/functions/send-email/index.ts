@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { checkRateLimit, rateLimitResponse } from "../_shared/rateLimit.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const FROM = "Jeux Dia VR <noreply@jeuxdia.com>";
@@ -7,6 +8,22 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Escape user-controlled values before interpolating into HTML emails
+function esc(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escData(data: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k in data) out[k] = esc(data[k]);
+  return out;
+}
 
 function bookingConfirmedHtml(data: Record<string, string>) {
   return `
@@ -98,10 +115,17 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (!RESEND_API_KEY) return new Response("RESEND_API_KEY not set", { status: 500, headers: CORS });
 
+  if (!(await checkRateLimit(req, "send-email", 20, 60))) {
+    return rateLimitResponse(CORS);
+  }
+
   try {
     const { template, data } = await req.json();
-    const html = TEMPLATES[template]?.(data);
-    if (!html || !data?.to) return new Response("Bad request", { status: 400, headers: CORS });
+    if (!data?.to) return new Response("Bad request", { status: 400, headers: CORS });
+    // Escape user-controlled fields (name, etc.) before rendering into HTML; "to" is used
+    // only as an API parameter (never rendered), so it's kept unescaped.
+    const html = TEMPLATES[template]?.(escData(data));
+    if (!html) return new Response("Bad request", { status: 400, headers: CORS });
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

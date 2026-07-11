@@ -1871,7 +1871,71 @@ function MembershipPage({ user, onActivate }) {
   );
 }
 
-function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, onChangePassword }) {
+function DeleteAccountSection({ onDeleteAccount }) {
+  const [open, setOpen] = React.useState(false);
+  const [confirmText, setConfirmText] = React.useState("");
+  const [deleting, setDeleting] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  async function handleDelete() {
+    setDeleting(true);
+    setError("");
+    try {
+      await onDeleteAccount();
+    } catch (err) {
+      setError(err?.message || "Erreur lors de la suppression. Réessayez ou contactez-nous.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ borderColor: "rgba(252,165,165,0.4)" }}>
+      <strong style={{ color: "#fca5a5" }}>Zone dangereuse</strong>
+      {!open ? (
+        <div style={{ marginTop: 10 }}>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+            Supprimer définitivement votre compte et vos données personnelles.
+          </p>
+          <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5", borderColor: "rgba(252,165,165,0.4)" }} onClick={() => setOpen(true)}>
+            Supprimer mon compte
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10 }}>
+          <p style={{ fontSize: 13, marginBottom: 10 }}>
+            Cette action est <strong>irréversible</strong>. Votre profil, vos données personnelles et votre accès seront
+            définitivement supprimés. Vos réservations passées seront conservées de façon anonymisée pour nos
+            obligations comptables. Tapez <strong>SUPPRIMER</strong> pour confirmer.
+          </p>
+          <input
+            className="input"
+            placeholder="SUPPRIMER"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            style={{ marginBottom: 10 }}
+          />
+          {error && <p style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10 }}>{error}</p>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setOpen(false); setConfirmText(""); setError(""); }} disabled={deleting}>
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: "#dc2626", color: "#fff", borderColor: "#dc2626" }}
+              onClick={handleDelete}
+              disabled={confirmText !== "SUPPRIMER" || deleting}
+            >
+              {deleting ? "Suppression…" : "Supprimer définitivement"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, onChangePassword, onDeleteAccount }) {
   const now = new Date();
   const [editing, setEditing] = React.useState(false);
   const [form, setForm] = React.useState({ name: user?.name || "", phone: user?.phone || "" });
@@ -2050,6 +2114,8 @@ function ProfilePage({ user, bookings, onCancel, onReschedule, onSaveProfile, on
           })
         )}
       </div>
+
+      <DeleteAccountSection onDeleteAccount={onDeleteAccount} />
     </>
   );
 }
@@ -2117,6 +2183,243 @@ function RevenueSourceBar({ label, value, color, width }) {
         />
       </div>
     </div>
+  );
+}
+
+const LEGAL_ENTITY = "Ouimoove (Jeux Dia VR)";
+const LEGAL_ADDRESS = "Adidogomé, Lomé, Togo";
+const LEGAL_CONTACT_EMAIL = "weareaurumgroup@gmail.com";
+const LEGAL_UPDATED = "10 juillet 2026";
+
+function LegalPage({ view, onNavigate }) {
+  const isPrivacy = view === "privacy";
+  return (
+    <div className="card" style={{ maxWidth: 820, margin: "0 auto", lineHeight: 1.7 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        <button type="button" className={`btn btn-sm ${isPrivacy ? "btn-primary" : "btn-ghost"}`} onClick={() => onNavigate("privacy")}>
+          Confidentialité
+        </button>
+        <button type="button" className={`btn btn-sm ${!isPrivacy ? "btn-primary" : "btn-ghost"}`} onClick={() => onNavigate("terms")}>
+          Conditions d'utilisation
+        </button>
+      </div>
+      {isPrivacy ? <PrivacyPolicyContent /> : <TermsContent />}
+    </div>
+  );
+}
+
+function LegalH2({ children }) {
+  return <h2 style={{ fontSize: 18, marginTop: 28, marginBottom: 8, color: "var(--accent)" }}>{children}</h2>;
+}
+function LegalH3({ children }) {
+  return <h3 style={{ fontSize: 15, marginTop: 18, marginBottom: 6 }}>{children}</h3>;
+}
+function LegalP({ children }) {
+  return <p className="muted" style={{ fontSize: 13.5, marginBottom: 10 }}>{children}</p>;
+}
+
+function PrivacyPolicyContent() {
+  return (
+    <>
+      <h1 className="orbitron" style={{ fontSize: 22, marginTop: 0 }}>Politique de confidentialité</h1>
+      <LegalP>Dernière mise à jour : {LEGAL_UPDATED}</LegalP>
+      <LegalP>
+        Cette politique explique comment <strong>{LEGAL_ENTITY}</strong> ("nous", "notre"), basé à {LEGAL_ADDRESS},
+        collecte, utilise et protège vos données personnelles lorsque vous utilisez le site jeuxdia.com et nos services
+        de réservation de sessions de réalité virtuelle. Elle est conçue pour respecter le Règlement Général sur la
+        Protection des Données (RGPD — UE) et le California Consumer Privacy Act (CCPA) pour les résidents concernés,
+        ainsi que les principes applicables en matière de protection des données au Togo.
+      </LegalP>
+
+      <LegalH2>1. Données que nous collectons</LegalH2>
+      <LegalP>Nous collectons uniquement les données nécessaires au fonctionnement du service :</LegalP>
+      <ul className="muted" style={{ fontSize: 13.5, paddingLeft: 20, marginBottom: 10 }}>
+        <li><strong>Compte :</strong> nom complet, adresse email, numéro de téléphone, mot de passe (chiffré).</li>
+        <li><strong>Réservations :</strong> date, heure, durée, montant, statut de paiement, code promo utilisé.</li>
+        <li><strong>Paiement :</strong> nous ne stockons jamais vos identifiants Mixx/Flooz ni vos données de carte bancaire — ces paiements sont traités directement par notre prestataire PayDunya.</li>
+        <li><strong>Événements :</strong> localisation approximative (épinglée sur carte) pour le calcul du devis de déplacement.</li>
+        <li><strong>Usage :</strong> pages visitées, actions dans l'application (via PostHog), à des fins d'amélioration du produit.</li>
+        <li><strong>Techniques :</strong> journaux d'erreurs (via Sentry) pour diagnostiquer les bugs.</li>
+      </ul>
+
+      <LegalH2>2. Comment nous utilisons vos données</LegalH2>
+      <LegalP>
+        Nous utilisons vos données pour : créer et gérer votre compte ; traiter vos réservations et paiements ;
+        vous envoyer des emails transactionnels (confirmation de réservation, paiement, bienvenue, activation Pass Membre) ;
+        assurer la sécurité de la plateforme ; améliorer nos services ; respecter nos obligations légales.
+        Nous ne vendons jamais vos données personnelles.
+      </LegalP>
+
+      <LegalH2>3. Partage avec des tiers</LegalH2>
+      <LegalP>Nous partageons certaines données avec des prestataires de confiance, uniquement dans la mesure nécessaire :</LegalP>
+      <ul className="muted" style={{ fontSize: 13.5, paddingLeft: 20, marginBottom: 10 }}>
+        <li><strong>Supabase</strong> — hébergement de la base de données et authentification.</li>
+        <li><strong>PayDunya</strong> — traitement des paiements en ligne (Mixx, Flooz, carte bancaire).</li>
+        <li><strong>Resend</strong> — envoi des emails transactionnels.</li>
+        <li><strong>PostHog</strong> — analyse d'usage anonymisée/pseudonymisée.</li>
+        <li><strong>Sentry</strong> — suivi des erreurs techniques.</li>
+        <li><strong>Vercel</strong> — hébergement du site.</li>
+      </ul>
+      <LegalP>Chacun de ces prestataires est contractuellement tenu de protéger vos données et ne les utilise que pour nous fournir leur service.</LegalP>
+
+      <LegalH2>4. Conservation des données</LegalH2>
+      <LegalP>
+        Vos données de compte et de réservation sont conservées tant que votre compte est actif. Si vous supprimez
+        votre compte, vos données personnelles sont effacées sous 30 jours, sauf obligation légale de conservation
+        (ex. registres comptables) qui nous impose de garder certaines données de transaction plus longtemps.
+      </LegalP>
+
+      <LegalH2>5. Vos droits</LegalH2>
+      <LegalP>Selon votre lieu de résidence, vous disposez des droits suivants sur vos données personnelles :</LegalP>
+      <ul className="muted" style={{ fontSize: 13.5, paddingLeft: 20, marginBottom: 10 }}>
+        <li><strong>Accès :</strong> obtenir une copie des données que nous détenons sur vous.</li>
+        <li><strong>Rectification :</strong> corriger des données inexactes (modifiable directement dans votre profil).</li>
+        <li><strong>Effacement :</strong> supprimer votre compte et vos données via la page "Supprimer mon compte" dans votre profil.</li>
+        <li><strong>Portabilité :</strong> recevoir vos données dans un format structuré.</li>
+        <li><strong>Opposition / limitation :</strong> vous opposer à certains traitements (ex. analytics).</li>
+        <li><strong>Résidents californiens (CCPA) :</strong> droit de savoir quelles données sont collectées/vendues (nous ne vendons aucune donnée) et droit de non-discrimination pour l'exercice de vos droits.</li>
+      </ul>
+      <LegalP>Pour exercer ces droits, contactez-nous à <strong>{LEGAL_CONTACT_EMAIL}</strong>. Nous répondons sous 30 jours.</LegalP>
+
+      <LegalH2>6. Cookies et traceurs</LegalH2>
+      <LegalP>
+        Nous utilisons des cookies techniques (session de connexion) essentiels au fonctionnement du site, ainsi que
+        des cookies analytiques (PostHog) pour comprendre l'usage de l'application. Vous pouvez désactiver les cookies
+        non essentiels dans les paramètres de votre navigateur ; cela peut limiter certaines fonctionnalités.
+      </LegalP>
+
+      <LegalH2>7. Sécurité</LegalH2>
+      <LegalP>
+        Vos données sont protégées par chiffrement en transit (HTTPS) et au repos, un contrôle d'accès strict
+        (Row Level Security) et une authentification sécurisée. Aucun système n'est infaillible ; en cas de violation
+        de données affectant vos informations, nous vous notifierons conformément à la loi applicable.
+      </LegalP>
+
+      <LegalH2>8. Mineurs</LegalH2>
+      <LegalP>
+        Notre service n'est pas destiné aux personnes de moins de 16 ans sans le consentement d'un parent ou tuteur.
+        Toute réservation pour un mineur doit être effectuée par un adulte responsable.
+      </LegalP>
+
+      <LegalH2>9. Contact</LegalH2>
+      <LegalP>
+        Pour toute question relative à cette politique ou à vos données personnelles :
+        <br /><strong>{LEGAL_ENTITY}</strong> — {LEGAL_ADDRESS}
+        <br />Email : <strong>{LEGAL_CONTACT_EMAIL}</strong>
+      </LegalP>
+    </>
+  );
+}
+
+function TermsContent() {
+  return (
+    <>
+      <h1 className="orbitron" style={{ fontSize: 22, marginTop: 0 }}>Conditions générales d'utilisation</h1>
+      <LegalP>Dernière mise à jour : {LEGAL_UPDATED}</LegalP>
+      <LegalP>
+        Les présentes conditions générales ("Conditions") régissent l'utilisation du site jeuxdia.com et des services
+        de réservation de sessions de réalité virtuelle exploités par <strong>{LEGAL_ENTITY}</strong>, {LEGAL_ADDRESS}
+        ("nous", "Jeux Dia VR"). En créant un compte ou en utilisant le service, vous acceptez ces Conditions.
+      </LegalP>
+
+      <LegalH2>1. Le service</LegalH2>
+      <LegalP>
+        Jeux Dia VR propose la réservation en ligne de sessions de réalité virtuelle, un Pass Membre à durée limitée,
+        des tournois, et des animations événementielles avec équipement VR mobile à Lomé et ses environs.
+      </LegalP>
+
+      <LegalH2>2. Comptes utilisateurs</LegalH2>
+      <LegalP>
+        Vous devez fournir des informations exactes lors de la création de votre compte et êtes responsable de la
+        confidentialité de votre mot de passe. Nous nous réservons le droit de suspendre tout compte utilisé de
+        manière frauduleuse ou abusive.
+      </LegalP>
+
+      <LegalH2>3. Réservations et paiement</LegalH2>
+      <LegalP>
+        Les tarifs affichés sont en Francs CFA (XOF) et incluent toutes taxes applicables. Le paiement s'effectue en
+        ligne via PayDunya (Mixx, Flooz, carte bancaire) ou par transfert Mobile Money vérifié manuellement selon la
+        méthode choisie. Une réservation n'est confirmée qu'après validation du paiement. Les codes promotionnels
+        sont soumis à leurs conditions propres (durée, produits éligibles, nombre d'utilisations).
+      </LegalP>
+
+      <LegalH3>3.1 Annulation et remboursement</LegalH3>
+      <LegalP>
+        Vous pouvez annuler ou reprogrammer une réservation depuis votre profil tant que la session n'a pas eu lieu.
+        Les paiements déjà effectués pour une session non consommée peuvent être remboursés ou convertis en crédit
+        à notre discrétion, sauf en cas d'absence sans préavis ("no-show").
+      </LegalP>
+
+      <LegalH2>4. Contenu généré par l'utilisateur (UGC) et licence</LegalH2>
+      <LegalP>
+        Si vous soumettez du contenu (avis, photos, notes de réservation, commentaires), vous nous accordez une
+        licence non exclusive, mondiale et gratuite pour l'héberger, l'afficher et l'utiliser dans le cadre du
+        fonctionnement et de la promotion du service. Vous restez propriétaire de votre contenu et garantissez
+        détenir les droits nécessaires pour le publier. Nous nous réservons le droit de retirer tout contenu
+        illégal, offensant ou portant atteinte aux droits d'un tiers.
+      </LegalP>
+
+      <LegalH3>4.1 Signalement d'atteinte aux droits d'auteur (DMCA)</LegalH3>
+      <LegalP>
+        Si vous estimez qu'un contenu publié sur le site porte atteinte à vos droits d'auteur, envoyez une
+        notification à <strong>{LEGAL_CONTACT_EMAIL}</strong> comprenant : (a) l'identification de l'œuvre protégée ;
+        (b) l'URL ou la localisation précise du contenu litigieux ; (c) vos coordonnées ; (d) une déclaration de
+        bonne foi indiquant que l'utilisation n'est pas autorisée ; (e) une déclaration, sous peine de parjure,
+        que les informations fournies sont exactes et que vous êtes habilité à agir. Nous traiterons les
+        notifications valides dans les meilleurs délais et pourrons retirer le contenu concerné et/ou suspendre
+        le compte de l'auteur en cas de récidive.
+      </LegalP>
+
+      <LegalH2>5. Utilisation acceptable</LegalH2>
+      <LegalP>
+        Vous vous engagez à ne pas : utiliser le service à des fins illégales ; tenter d'accéder sans autorisation
+        à nos systèmes ou à des comptes d'autres utilisateurs ; perturber le fonctionnement du site (attaques,
+        scraping automatisé, surcharge délibérée) ; publier du contenu diffamatoire, haineux ou illégal.
+      </LegalP>
+
+      <LegalH2>6. Limitation de responsabilité</LegalH2>
+      <LegalP>
+        Le service est fourni "en l'état". Dans la mesure permise par la loi applicable, {LEGAL_ENTITY} ne pourra
+        être tenu responsable des dommages indirects, accessoires ou consécutifs résultant de l'utilisation du
+        service. Notre responsabilité totale, le cas échéant, est limitée au montant payé par vous au cours des
+        12 mois précédant l'événement à l'origine de la réclamation. Les casques VR sont des équipements sensibles :
+        toute utilisation négligente causant des dommages pourra faire l'objet d'une facturation.
+      </LegalP>
+
+      <LegalH2>7. Résiliation</LegalH2>
+      <LegalP>
+        Vous pouvez supprimer votre compte à tout moment depuis votre profil. Nous pouvons suspendre ou résilier
+        votre accès en cas de violation substantielle des présentes Conditions.
+      </LegalP>
+
+      <LegalH2>8. Droit applicable et arbitrage</LegalH2>
+      <LegalP>
+        Les présentes Conditions sont régies par le droit togolais, sans égard aux principes de conflits de lois.
+      </LegalP>
+      <LegalP>
+        <strong>Clause d'arbitrage :</strong> Tout litige, controverse ou réclamation découlant des présentes
+        Conditions ou de leur violation, résiliation ou nullité, sera tranché définitivement selon le Règlement
+        d'arbitrage de la Chambre de Commerce Internationale ("CCI" / "ICC") par un arbitre unique nommé
+        conformément à ce Règlement. Le siège de l'arbitrage sera Lomé, Togo. La langue de l'arbitrage sera le
+        français. La sentence arbitrale sera définitive et contraignante pour les parties, sous réserve des
+        recours limités prévus par la loi applicable au siège de l'arbitrage. Chaque partie conserve le droit de
+        demander des mesures conservatoires ou provisoires auprès d'une juridiction compétente avant la
+        constitution du tribunal arbitral.
+      </LegalP>
+
+      <LegalH2>9. Modifications</LegalH2>
+      <LegalP>
+        Nous pouvons mettre à jour ces Conditions à tout moment. Les modifications substantielles vous seront
+        notifiées par email ou via une notification dans l'application. L'utilisation continue du service après
+        publication des modifications vaut acceptation.
+      </LegalP>
+
+      <LegalH2>10. Contact</LegalH2>
+      <LegalP>
+        <strong>{LEGAL_ENTITY}</strong> — {LEGAL_ADDRESS}
+        <br />Email : <strong>{LEGAL_CONTACT_EMAIL}</strong>
+      </LegalP>
+    </>
   );
 }
 
@@ -4034,6 +4337,13 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe?.();
   }, [loadCurrentUser, loadData]);
 
+  // Deep-link legal / account pages by path (no router in this SPA)
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === "/confidentialite" || path === "/privacy") setPage("privacy");
+    else if (path === "/conditions" || path === "/terms") setPage("terms");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle return from PayDunya checkout
   useEffect(() => {
     const path = window.location.pathname;
@@ -4280,6 +4590,32 @@ export default function App() {
     reset();
     addToast("Déconnecté.", "info");
     // Sign out locally — no network round-trip required
+    try { await supabase.auth.signOut({ scope: "local" }); } catch (_) {}
+  }
+
+  async function handleDeleteAccount() {
+    if (!user) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) throw new Error("Session invalide. Reconnectez-vous et réessayez.");
+
+    const { data, error } = await supabase.functions.invoke("delete-account", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (error || data?.error) {
+      throw new Error(data?.error || error?.message || "Erreur lors de la suppression du compte.");
+    }
+
+    track("account_deleted");
+    setUser(null);
+    setPage("calendar");
+    resetUiState();
+    setRawUsers([]);
+    setLogs([]);
+    setBookings([]);
+    setEventBookings([]);
+    reset();
+    addToast("Votre compte a été supprimé.", "info");
     try { await supabase.auth.signOut({ scope: "local" }); } catch (_) {}
   }
 
@@ -4865,7 +5201,7 @@ export default function App() {
             <MembershipPage user={user} onActivate={handleActivateMembership} />
           )}
 
-          {!loading && page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} onChangePassword={() => setResetModal(true)} />}
+          {!loading && page === "profile" && user && <ProfilePage user={user} bookings={bookings} onCancel={handleCancelBooking} onReschedule={setRescheduleDraft} onSaveProfile={handleSaveProfile} onChangePassword={() => setResetModal(true)} onDeleteAccount={handleDeleteAccount} />}
 
           {!loading && page === "admin" && user?.isAdmin && (
             <AdminDashboard
@@ -4884,7 +5220,19 @@ export default function App() {
               onRejectMembership={handleRejectMembership}
             />
           )}
+
+          {!loading && (page === "privacy" || page === "terms") && (
+            <LegalPage view={page} onNavigate={setPage} />
+          )}
         </main>
+
+        <footer style={{ textAlign: "center", padding: "24px 16px 100px", fontSize: 12 }} className="muted">
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPage("privacy")}>Confidentialité</span>
+            <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPage("terms")}>Conditions d'utilisation</span>
+          </div>
+          <div>© {new Date().getFullYear()} Jeux Dia VR · Lomé, Togo</div>
+        </footer>
 
         {!user && (
           <div

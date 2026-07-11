@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { checkRateLimit, rateLimitResponse } from "../_shared/rateLimit.ts";
 
 const MASTER_KEY  = Deno.env.get("PAYDUNYA_MASTER_KEY")!;
 const PRIVATE_KEY = Deno.env.get("PAYDUNYA_PRIVATE_KEY")!;
@@ -20,6 +21,10 @@ const CORS = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
+  if (!(await checkRateLimit(req, "paydunya-create-invoice", 10, 60))) {
+    return rateLimitResponse(CORS);
+  }
 
   try {
     const { type, bookingId, userId, eventId, amount, description, customerName, customerEmail, customerPhone } = await req.json();
