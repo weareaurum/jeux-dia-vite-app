@@ -424,6 +424,13 @@ function GlobalStyle() {
         background: rgba(100,116,139,0.08);
       }
 
+      .slot.past {
+        color: var(--muted);
+        background: rgba(100,116,139,0.04);
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
       .tag {
         display: inline-block;
         border-radius: 999px;
@@ -1474,12 +1481,14 @@ function RescheduleModal({ booking, bookings, onClose, onConfirm }) {
 
   const weekDates = getWeekDates(weekOffset);
 
+  const MIN_LEAD_MS = 2 * 60 * 60 * 1000; // clients must reschedule to at least 2h ahead
+
   function slotStatus(time) {
     const found = bookings.find(
       (b) => b.dateStr === dateStr && b.time === time && b.sourceId !== booking.sourceId
     );
-    if (!found) return "available";
-    if (found.type === "buffer" || found.type === "booked" || found.type === "blocked") return "taken";
+    if (found && (found.type === "buffer" || found.type === "booked" || found.type === "blocked")) return "taken";
+    if (combineDateAndTime(dateStr, time).getTime() < Date.now() + MIN_LEAD_MS) return "taken";
     return "available";
   }
 
@@ -1692,13 +1701,21 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, onOpenAdminS
 
   const weekDates = getWeekDates(weekOffset);
   const dateStr = toDateStr(selectedDate);
+  const MIN_LEAD_MS = 2 * 60 * 60 * 1000; // clients must book at least 2h ahead
 
   function slotStatus(time) {
     const found = bookings.find((b) => b.dateStr === dateStr && b.time === time);
-    if (!found) return { type: "available" };
-    if (found.type === "blocked") return { type: "blocked", label: found.reason || "Bloqué" };
-    if (found.type === "buffer") return { type: "buffer", label: "buffer" };
-    return { type: "booked", label: found.name || "Réservé" };
+    if (found) {
+      if (found.type === "blocked") return { type: "blocked", label: found.reason || "Bloqué" };
+      if (found.type === "buffer") return { type: "buffer", label: "buffer" };
+      return { type: "booked", label: found.name || "Réservé" };
+    }
+    // Admins can book any open slot, including same-day/last-minute walk-ins
+    if (!user?.isAdmin && combineDateAndTime(dateStr, time).getTime() < Date.now() + MIN_LEAD_MS) {
+      const isPast = combineDateAndTime(dateStr, time).getTime() < Date.now();
+      return { type: "past", label: isPast ? "" : "min. 2h" };
+    }
+    return { type: "available" };
   }
 
   function handleClick(time) {
@@ -1711,6 +1728,11 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, onOpenAdminS
 
     if (!user) {
       addToast("Connectez-vous d'abord.", "info");
+      return;
+    }
+
+    if (status.type === "past") {
+      addToast("Réservation possible seulement à partir de 2h à l'avance.", "info");
       return;
     }
 
@@ -1807,6 +1829,8 @@ function CalendarView({ user, bookings, onOpenBooking, onOpenBlock, onOpenAdminS
                 ? "blocked"
                 : s.type === "buffer"
                 ? "buffer"
+                : s.type === "past"
+                ? "past"
                 : "booked";
 
             return (
