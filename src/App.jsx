@@ -5255,6 +5255,17 @@ export default function App() {
             <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPage("terms")}>Conditions d'utilisation</span>
           </div>
           <div>© {new Date().getFullYear()} Jeux Dia VR · Lomé, Togo</div>
+          <div style={{ marginTop: 4 }}>
+            Site conçu par{" "}
+            <a
+              href="https://waa-woad.vercel.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "inherit", textDecoration: "underline" }}
+            >
+              weareaurum
+            </a>
+          </div>
         </footer>
 
         {!user && (
