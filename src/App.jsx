@@ -692,6 +692,7 @@ function makeUser(row) {
     daysLeft: expiry ? Math.max(0, Math.ceil((expiry - now) / 86400000)) : 0,
     memberExpiry: row.member_expiry || null,
     loyaltyPoints: row.loyalty_points || 0,
+    emailVerified: !!row.email_verified,
   };
 }
 
@@ -4367,6 +4368,25 @@ export default function App() {
     else if (path === "/conditions" || path === "/terms") setPage("terms");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Handle return from the email verification link
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("email_verified");
+    if (!status) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (status === "verified") {
+      addToast("Email confirmé ! Merci. ✅", "success");
+      // If this browser is already logged in, sync the flag into local state right away
+      supabase.auth.getUser().then(({ data }) => {
+        if (data?.user) setUser((u) => (u ? { ...u, emailVerified: true } : u));
+      });
+    } else if (status === "expired") {
+      addToast("Ce lien de vérification a expiré. Renvoyez-en un depuis votre profil.", "error");
+    } else {
+      addToast("Lien de vérification invalide.", "error");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle return from PayDunya checkout
   useEffect(() => {
     const path = window.location.pathname;
@@ -4501,6 +4521,19 @@ export default function App() {
     }
   }
 
+  async function sendVerificationEmail() {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) return;
+      await supabase.functions.invoke("send-verification-email", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (_) {
+      // Non-blocking — verification email failure should never break signup
+    }
+  }
+
   async function handleRegister(form) {
     if (!form.name || !form.phone || !form.email || !form.password) {
       addToast("Remplissez tous les champs.", "error");
@@ -4528,9 +4561,10 @@ export default function App() {
         identify(built);
         track("user_registered", { method: "email" });
         emailWelcome(built);
+        sendVerificationEmail();
         resetUiState();
         setPage(built.isAdmin ? "admin" : "calendar");
-        addToast("Compte créé ! Bienvenue 🎮");
+        addToast("Compte créé ! Vérifiez votre email pour confirmer votre compte.");
         await loadData(built);
         return;
       }
@@ -4544,9 +4578,10 @@ export default function App() {
         identify(built);
         track("user_registered", { method: "email" });
         emailWelcome(built);
+        sendVerificationEmail();
         resetUiState();
         setPage(built.isAdmin ? "admin" : "calendar");
-        addToast("Compte créé ! Bienvenue 🎮");
+        addToast("Compte créé ! Vérifiez votre email pour confirmer votre compte.");
         await loadData(built);
         return;
       }
@@ -4640,6 +4675,26 @@ export default function App() {
     reset();
     addToast("Votre compte a été supprimé.", "info");
     try { await supabase.auth.signOut({ scope: "local" }); } catch (_) {}
+  }
+
+  async function handleResendVerification() {
+    if (!user) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) { addToast("Session invalide. Reconnectez-vous et réessayez.", "error"); return; }
+    const { data, error } = await supabase.functions.invoke("send-verification-email", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (error || data?.error) {
+      addToast(data?.error || error?.message || "Erreur lors de l'envoi.", "error");
+      return;
+    }
+    if (data?.alreadyVerified) {
+      setUser((u) => (u ? { ...u, emailVerified: true } : u));
+      addToast("Votre email est déjà confirmé.", "info");
+      return;
+    }
+    addToast("Email de vérification envoyé. Vérifiez votre boîte de réception.");
   }
 
   async function confirmBooking(promoResult = null, finalAmount = null, paymentMethod = null, guestCount = 0, pointsUsed = 0) {
@@ -5158,6 +5213,20 @@ export default function App() {
         </header>
 
         <main className="container main-content">
+          {!loading && user && !user.isAdmin && !user.emailVerified && (
+            <div
+              className="card"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+                background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.35)", marginBottom: 16,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>📩 Confirmez votre email pour sécuriser votre compte.</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={handleResendVerification}>
+                Renvoyer l'email
+              </button>
+            </div>
+          )}
           {loading && (
             <div style={{ textAlign: "center", padding: "60px 0" }}>
               <div className="spinner" />

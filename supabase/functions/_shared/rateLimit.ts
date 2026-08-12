@@ -37,6 +37,36 @@ export async function checkRateLimit(
   }
 }
 
+/**
+ * Same sliding-window limiter, but keyed on an arbitrary string (e.g. an
+ * authenticated user id) instead of the request's IP.
+ */
+export async function checkRateLimitByKey(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<boolean> {
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data, error } = await supabase.rpc("check_rate_limit", {
+      p_key: key,
+      p_limit: limit,
+      p_window_seconds: windowSeconds,
+    });
+    if (error) {
+      console.error("Rate limit check failed (allowing request):", error.message);
+      return true;
+    }
+    return data === true;
+  } catch (err) {
+    console.error("Rate limit crash (allowing request):", err);
+    return true;
+  }
+}
+
 export function rateLimitResponse(cors: Record<string, string>) {
   return new Response(
     JSON.stringify({ error: "Trop de requêtes. Réessayez dans quelques instants." }),
