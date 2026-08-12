@@ -35,7 +35,6 @@ function verifyEmailHtml(name: string, link: string) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (!RESEND_API_KEY) return new Response(JSON.stringify({ error: "RESEND_API_KEY not set" }), { status: 500, headers: { ...CORS, "Content-Type": "application/json" } });
 
   if (!(await checkRateLimit(req, "send-verification-email", 5, 600))) {
     return rateLimitResponse(CORS);
@@ -44,9 +43,14 @@ serve(async (req) => {
   try {
     // Only the logged-in user can request their own verification email — never
     // trust a client-supplied userId, which would let anyone spam arbitrary accounts.
+    // Checked before the RESEND_API_KEY config check so an anonymous caller gets a
+    // plain 401 instead of a 500 that leaks infra configuration state.
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing authorization" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
+    }
+    if (!RESEND_API_KEY) {
+      return new Response(JSON.stringify({ error: "RESEND_API_KEY not set" }), { status: 500, headers: { ...CORS, "Content-Type": "application/json" } });
     }
     const authedClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
