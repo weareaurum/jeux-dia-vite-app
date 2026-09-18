@@ -777,7 +777,8 @@ function makeUser(row) {
     email: row.email || "",
     phone: row.phone || "",
     role: row.role || "customer",
-    isAdmin: row.role === "admin",
+    isAdmin: row.role === "admin" || row.role === "super_admin",
+    isSuperAdmin: row.role === "super_admin",
     memberStatus: active ? "active" : expired ? "expired" : null,
     daysLeft: expiry ? Math.max(0, Math.ceil((expiry - now) / 86400000)) : 0,
     memberExpiry: row.member_expiry || null,
@@ -1524,7 +1525,6 @@ function EditUserModal({ userData, onClose, onSave }) {
     full_name: userData.full_name || "",
     phone: userData.phone || "",
     email: userData.email || "",
-    role: userData.role || "customer",
     is_member: !!userData.is_member,
   });
 
@@ -1535,10 +1535,11 @@ function EditUserModal({ userData, onClose, onSave }) {
         <input value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} placeholder="Nom complet" />
         <input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Téléphone" />
         <input value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} placeholder="Email" />
-        <select value={form.role} onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}>
-          <option value="customer">customer</option>
-          <option value="admin">admin</option>
-        </select>
+        {userData.role !== "customer" && (
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Rôle : {userData.role === "super_admin" ? "Super admin" : "Admin"} — se gère depuis le panneau « Admins ».
+          </p>
+        )}
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input
             type="checkbox"
@@ -3095,7 +3096,95 @@ function CustomerProfileModal({ targetUser, bookings, onClose }) {
   );
 }
 
-function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onRejectPayment, onAdminCancel, onConfirmEvent, onCancelEvent, onConfirmMembership, onRejectMembership }) {
+function AdminsPanel({ users, currentUser, onInviteAdmin, onRevokeAdmin }) {
+  const [email, setEmail] = React.useState("");
+  const [fullName, setFullName] = React.useState("");
+  const [inviting, setInviting] = React.useState(false);
+  const [confirmRevoke, setConfirmRevoke] = React.useState(null);
+
+  const admins = users.filter((u) => u.role === "admin" || u.role === "super_admin");
+
+  async function handleInvite() {
+    if (!email.trim() || !fullName.trim()) return;
+    setInviting(true);
+    try {
+      await onInviteAdmin(email.trim(), fullName.trim());
+      setEmail("");
+      setFullName("");
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  return (
+    <div className="card admin-card-soft" style={{ borderColor: "rgba(124,58,237,0.35)" }}>
+      <div className="orbitron admin-section-title" style={{ color: "#c4b5fd" }}>
+        <Crown size={18} color="#c4b5fd" />
+        ADMINS
+      </div>
+
+      <p className="muted" style={{ fontSize: 13, marginTop: -8, marginBottom: 16 }}>
+        Seuls les super admins peuvent ajouter de nouveaux admins. Chaque admin reçoit un email pour créer son propre mot de passe — un compte client existant ne peut pas être promu directement.
+      </p>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+        <input
+          className="input"
+          placeholder="Nom complet"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          style={{ flex: "1 1 200px" }}
+        />
+        <input
+          className="input"
+          type="email"
+          placeholder="email@exemple.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={{ flex: "1 1 220px" }}
+        />
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={handleInvite}
+          disabled={inviting || !email.trim() || !fullName.trim()}
+        >
+          {inviting ? "Envoi…" : "Inviter un admin"}
+        </button>
+      </div>
+
+      {admins.map((a) => (
+        <div key={a.id} className="list-row">
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              {a.full_name || "—"}
+              {a.id === currentUser.id && <span className="muted" style={{ fontSize: 12 }}> (vous)</span>}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>{a.email || "—"}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span className="tag tag-purple">{a.role === "super_admin" ? "SUPER ADMIN" : "ADMIN"}</span>
+            {a.role === "admin" && a.id !== currentUser.id && (
+              confirmRevoke === a.id ? (
+                <>
+                  <span className="muted" style={{ fontSize: 12 }}>Confirmer ?</span>
+                  <button type="button" className="btn btn-sm" style={{ background: "#dc2626", color: "#fff" }} onClick={() => { onRevokeAdmin(a); setConfirmRevoke(null); }}>Oui</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmRevoke(null)}>Annuler</button>
+                </>
+              ) : (
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "#fca5a5" }} onClick={() => setConfirmRevoke(a.id)}>
+                  Révoquer
+                </button>
+              )
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminDashboard({ currentUser, users, bookings, logs, eventBookings = [], onEditUser, onUnblock, onConfirmPayment, onRejectPayment, onAdminCancel, onConfirmEvent, onCancelEvent, onConfirmMembership, onRejectMembership, onInviteAdmin, onRevokeAdmin }) {
   const today = new Date();
   const todayStr = toDateStr(today);
   const startOfWeek = getStartOfWeek(today);
@@ -3630,6 +3719,10 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
 
       <PromoCodesSection />
 
+      {currentUser?.isSuperAdmin && (
+        <AdminsPanel users={users} currentUser={currentUser} onInviteAdmin={onInviteAdmin} onRevokeAdmin={onRevokeAdmin} />
+      )}
+
       <div className="card admin-card-soft">
         <div className="orbitron admin-section-title">
           <Users size={18} color="var(--accent)" />
@@ -3644,8 +3737,8 @@ function AdminDashboard({ users, bookings, logs, eventBookings = [], onEditUser,
               {u.loyalty_points > 0 && <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 1 }}>⭐ {u.loyalty_points} points</div>}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span className={`tag ${u.role === "admin" ? "tag-purple" : u.is_member ? "tag-green" : "tag-amber"}`}>
-                {u.role === "admin" ? "ADMIN" : u.is_member ? "MEMBRE" : "CLIENT"}
+              <span className={`tag ${u.role === "super_admin" || u.role === "admin" ? "tag-purple" : u.is_member ? "tag-green" : "tag-amber"}`}>
+                {u.role === "super_admin" ? "SUPER ADMIN" : u.role === "admin" ? "ADMIN" : u.is_member ? "MEMBRE" : "CLIENT"}
               </span>
               <button type="button" className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); onEditUser(u); }}>
                 Modifier
@@ -4787,6 +4880,35 @@ export default function App() {
     addToast("Email de vérification envoyé. Vérifiez votre boîte de réception.");
   }
 
+  async function handleInviteAdmin(email, fullName) {
+    if (!user?.isSuperAdmin) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) { addToast("Session invalide. Reconnectez-vous et réessayez.", "error"); return; }
+
+    const { data, error } = await supabase.functions.invoke("invite-admin", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: { email, fullName },
+    });
+    if (error || data?.error) {
+      addToast(data?.error || error?.message || "Erreur lors de l'invitation.", "error");
+      return;
+    }
+    await logAdminAction("INVITE_ADMIN", "users", data?.userId || null, { email, fullName });
+    await loadData(user);
+    addToast(`Invitation envoyée à ${email}. Ils recevront un email pour créer leur mot de passe.`);
+  }
+
+  async function handleRevokeAdmin(targetUser) {
+    if (!user?.isSuperAdmin) return;
+    if (targetUser.id === user.id) { addToast("Vous ne pouvez pas vous rétrograder vous-même.", "error"); return; }
+    const { error } = await supabase.from("users").update({ role: "customer" }).eq("id", targetUser.id);
+    if (error) { addToast(error.message, "error"); return; }
+    await logAdminAction("REVOKE_ADMIN", "users", targetUser.id, { name: targetUser.full_name });
+    await loadData(user);
+    addToast(`Accès admin révoqué pour ${targetUser.full_name}.`);
+  }
+
   async function confirmBooking(promoResult = null, finalAmount = null, paymentMethod = null, guestCount = 0, pointsUsed = 0) {
     if (!bookingDraft || !user) return;
 
@@ -5387,6 +5509,7 @@ export default function App() {
 
           {!loading && page === "admin" && user?.isAdmin && (
             <AdminDashboard
+              currentUser={user}
               users={rawUsers}
               bookings={bookings}
               logs={logs}
@@ -5400,6 +5523,8 @@ export default function App() {
               onCancelEvent={handleCancelEvent}
               onConfirmMembership={handleConfirmMembership}
               onRejectMembership={handleRejectMembership}
+              onInviteAdmin={handleInviteAdmin}
+              onRevokeAdmin={handleRevokeAdmin}
             />
           )}
 
