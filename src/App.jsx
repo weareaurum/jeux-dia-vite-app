@@ -2543,7 +2543,8 @@ const EVENT_BASE_HOURS = 4;
 const EVENT_BASE_PRICE = 25000;
 const EVENT_EXTRA_PERSON = 500;
 const EVENT_EXTRA_HOUR = 100;
-const EVENT_DISTANCE_RATE = 5000; // per 20km
+const EVENT_FREE_RADIUS_KM = 8; // no travel fee within this radius of the base
+const EVENT_DISTANCE_RATE = 300; // CFA per km beyond the free radius
 // Adidogomé, Lomé, Togo
 const ADIDOGOME_LAT = 6.1750;
 const ADIDOGOME_LNG = 1.1550;
@@ -2559,7 +2560,8 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 function calcEventPrice(guests, hours, distanceKm = 0) {
   const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
-  const distanceFee = Math.ceil(distanceKm / 20) * EVENT_DISTANCE_RATE;
+  const billableKm = Math.max(0, distanceKm - EVENT_FREE_RADIUS_KM);
+  const distanceFee = Math.round(billableKm * EVENT_DISTANCE_RATE);
   return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
 }
 
@@ -2707,8 +2709,14 @@ function EventsPage({ user, onSubmit }) {
       <div className="card" style={{ background: "linear-gradient(180deg, rgba(0,245,212,0.07), rgba(17,24,39,0.96))", borderColor: "var(--accent)", textAlign: "center" }}>
         <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>DEVIS ESTIMÉ</div>
         <div className="orbitron" style={{ fontSize: 28, color: "var(--accent)" }}>{formatCFA(total)}</div>
-        {!pin && (
+        {!pin ? (
           <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Épinglez votre adresse sur la carte pour inclure les frais de déplacement</div>
+        ) : (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {distanceKm <= EVENT_FREE_RADIUS_KM
+              ? `Déplacement gratuit (moins de ${EVENT_FREE_RADIUS_KM} km)`
+              : `Déplacement : ${Math.round(distanceKm - EVENT_FREE_RADIUS_KM)} km facturés au-delà de ${EVENT_FREE_RADIUS_KM} km`}
+          </div>
         )}
       </div>
 
