@@ -2542,9 +2542,10 @@ const EVENT_BASE_GUESTS = 5;
 const EVENT_BASE_HOURS = 4;
 const EVENT_BASE_PRICE = 25000;
 const EVENT_EXTRA_PERSON = 500;
-const EVENT_EXTRA_HOUR = 100;
-const EVENT_FREE_RADIUS_KM = 8; // no travel fee within this radius of the base
-const EVENT_DISTANCE_RATE = 300; // CFA per km beyond the free radius
+const EVENT_EXTRA_HOUR = 1000;
+const EVENT_DISTANCE_BASE_KM = 4; // flat fee covers up to this many km
+const EVENT_DISTANCE_BASE_FEE = 1000; // flat CFA for the first EVENT_DISTANCE_BASE_KM
+const EVENT_DISTANCE_RATE = 300; // CFA per km beyond EVENT_DISTANCE_BASE_KM
 // Adidogomé, Lomé, Togo
 const ADIDOGOME_LAT = 6.1750;
 const ADIDOGOME_LNG = 1.1550;
@@ -2560,8 +2561,8 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 function calcEventPrice(guests, hours, distanceKm = 0) {
   const extraGuests = Math.max(0, guests - EVENT_BASE_GUESTS);
   const extraHours = Math.max(0, hours - EVENT_BASE_HOURS);
-  const billableKm = Math.max(0, distanceKm - EVENT_FREE_RADIUS_KM);
-  const distanceFee = Math.round(billableKm * EVENT_DISTANCE_RATE);
+  const extraKm = Math.max(0, distanceKm - EVENT_DISTANCE_BASE_KM);
+  const distanceFee = distanceKm > 0 ? EVENT_DISTANCE_BASE_FEE + Math.round(extraKm * EVENT_DISTANCE_RATE) : 0;
   return EVENT_BASE_PRICE + extraGuests * EVENT_EXTRA_PERSON + extraHours * EVENT_EXTRA_HOUR + distanceFee;
 }
 
@@ -2713,9 +2714,8 @@ function EventsPage({ user, onSubmit }) {
           <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Épinglez votre adresse sur la carte pour inclure les frais de déplacement</div>
         ) : (
           <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-            {distanceKm <= EVENT_FREE_RADIUS_KM
-              ? `Déplacement gratuit (moins de ${EVENT_FREE_RADIUS_KM} km)`
-              : `Déplacement : ${Math.round(distanceKm - EVENT_FREE_RADIUS_KM)} km facturés au-delà de ${EVENT_FREE_RADIUS_KM} km`}
+            Déplacement : {formatCFA(EVENT_DISTANCE_BASE_FEE)} (0–{EVENT_DISTANCE_BASE_KM} km)
+            {distanceKm > EVENT_DISTANCE_BASE_KM && ` + ${Math.round(distanceKm - EVENT_DISTANCE_BASE_KM)} km × ${formatCFA(EVENT_DISTANCE_RATE)}/km`}
           </div>
         )}
       </div>
